@@ -4,8 +4,8 @@ namespace App\Support\Import\Importers;
 
 use App\Models\Item;
 use App\Models\ItemSafetyStock;
-use App\Support\Import\ImportResult;
 use App\Support\Import\Importer;
+use App\Support\Import\ImportResult;
 use App\Support\Import\SpreadsheetReader;
 use App\Support\Import\Value;
 use Illuminate\Support\Facades\DB;
@@ -63,7 +63,7 @@ class ItemSafetyStockImporter implements Importer
         $batch = [];
 
         foreach ($sheets as $sheet) {
-            $grid = $reader->grid($path, $sheet, maxRow: 6100, maxColumn: 26);
+            $grid = $reader->gridCached($path, $sheet, maxRow: 6100, maxColumn: 26);
             $map = $this->columnMap($grid);
 
             if ($map === null) {
@@ -88,6 +88,17 @@ class ItemSafetyStockImporter implements Importer
                     continue;
                 }
 
+                $ss = $this->cell($cells, $map['ss']) ?? 0;
+                $minPr = $this->cell($cells, $map['minpr']);
+
+                // Skip rows that carry no real signal (an item appears in most sheets
+                // with SS/MIN PR = 0 for categories it doesn't belong to).
+                if ($ss <= 0 && ($minPr === null || $minPr <= 0)) {
+                    $result->skipped++;
+
+                    continue;
+                }
+
                 $batch[] = [
                     'item_id' => $itemId,
                     'source_category' => $category,
@@ -98,8 +109,8 @@ class ItemSafetyStockImporter implements Importer
                     'avg_usage_12m' => $this->cell($cells, $map['avg12']),
                     'lead_time_days' => ($lt = $this->cell($cells, $map['lt'])) !== null ? (int) round($lt) : null,
                     'sqrt_lt' => $this->cell($cells, $map['sqrtlt']),
-                    'safety_stock' => $this->cell($cells, $map['ss']) ?? 0,
-                    'min_pr' => $this->cell($cells, $map['minpr']),
+                    'safety_stock' => $ss,
+                    'min_pr' => $minPr,
                     'is_effective' => false,
                     'needs_review' => false,
                     'created_at' => $now,
@@ -191,22 +202,32 @@ class ItemSafetyStockImporter implements Importer
     private function resolveEffective(ImportResult $result): void
     {
         // Effective row per item = highest safety_stock (tie -> lowest id).
-        $effectiveIds = DB::table('item_safety_stocks as s')
-            ->select('s.id')
-            ->whereRaw('s.safety_stock = (select max(s2.safety_stock) from item_safety_stocks s2 where s2.item_id = s.item_id)')
-            ->groupBy('s.item_id')
-            ->selectRaw('min(s.id) as id')
-            ->pluck('id');
+        $byItem = DB::table('item_safety_stocks')
+            ->select('id', 'item_id', 'safety_stock')
+            ->orderBy('item_id')->orderByDesc('safety_stock')->orderBy('id')
+            ->get()
+            ->groupBy('item_id');
 
-        ItemSafetyStock::whereIn('id', $effectiveIds)->update(['is_effective' => true]);
+        $effectiveIds = [];
+        $conflicts = 0;
+        $reviewIds = [];
 
-        $conflicts = DB::table('item_safety_stocks')
-            ->select('item_id')->groupBy('item_id')->havingRaw('count(*) > 1')->get()->count();
+        foreach ($byItem as $rows) {
+            $effectiveIds[] = $rows->first()->id;
+            if ($rows->count() > 1) {
+                $conflicts++;
+                foreach ($rows->slice(1) as $r) {
+                    $reviewIds[] = $r->id;
+                }
+            }
+        }
 
-        ItemSafetyStock::where('is_effective', false)
-            ->whereIn('item_id', DB::table('item_safety_stocks')->select('item_id')
-                ->groupBy('item_id')->havingRaw('count(*) > 1'))
-            ->update(['needs_review' => true]);
+        foreach (array_chunk($effectiveIds, 1000) as $chunk) {
+            DB::table('item_safety_stocks')->whereIn('id', $chunk)->update(['is_effective' => true]);
+        }
+        foreach (array_chunk($reviewIds, 1000) as $chunk) {
+            DB::table('item_safety_stocks')->whereIn('id', $chunk)->update(['needs_review' => true]);
+        }
 
         $result->note("{$conflicts} item punya SS dari >1 sheet (yang tidak efektif ditandai needs_review).");
     }

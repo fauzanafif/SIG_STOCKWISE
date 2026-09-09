@@ -5,6 +5,7 @@ namespace App\Services\Inventory;
 use App\Models\InventoryAnalysisRun;
 use App\Models\InventorySnapshot;
 use App\Models\Item;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -23,29 +24,33 @@ class InventoryAnalyzer
     {
         $fallback = (int) config('stockwise.engine.lead_time_threshold_fallback', 14);
 
-        /** @var \Illuminate\Support\Collection<int, object> $rows */
+        $invAgg = DB::table('inventory')
+            ->selectRaw('item_id, SUM(actual_qty) a, SUM(reserved_qty) r, MAX(stock_known) k')
+            ->groupBy('item_id');
+
+        /** @var Collection<int, object> $rows */
         $rows = Item::query()
-            ->where('is_active', true)
+            ->where('items.is_active', true)
             ->leftJoin('item_safety_stocks as ss', function ($join) {
                 $join->on('ss.item_id', '=', 'items.id')->where('ss.is_effective', true);
             })
             ->leftJoin('units', 'units.id', '=', 'items.unit_id')
+            ->leftJoinSub($invAgg, 'inv', 'inv.item_id', '=', 'items.id')
             ->select([
                 'items.id',
                 'items.lead_time_days',
                 'units.code as uom',
                 DB::raw('COALESCE(ss.safety_stock, 0) as safety_stock'),
+                DB::raw('COALESCE(inv.a, 0) as actual'),
+                DB::raw('COALESCE(inv.r, 0) as reserved'),
+                DB::raw('COALESCE(inv.k, 0) as stock_known'),
             ])
             ->get()
             ->map(function ($row) {
-                $inv = DB::table('inventory')->where('item_id', $row->id)->selectRaw(
-                    'COALESCE(SUM(actual_qty),0) a, COALESCE(SUM(reserved_qty),0) r, MAX(stock_known) k'
-                )->first();
-
-                $row->actual = (float) ($inv->a ?? 0);
-                $row->reserved = (float) ($inv->r ?? 0);
+                $row->actual = (float) $row->actual;
+                $row->reserved = (float) $row->reserved;
                 $row->available = $row->actual - $row->reserved;
-                $row->stock_known = (bool) ($inv->k ?? false);
+                $row->stock_known = (bool) $row->stock_known;
                 $row->safety_stock = (float) $row->safety_stock;
                 $row->lead_time = (int) ($row->lead_time_days ?? 0);
 

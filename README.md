@@ -12,16 +12,19 @@ Monorepo:
 
 ## Status pembangunan
 
-Dibangun bertahap (lihat `docs/`). Fase berjalan: **PHASE 3 — Master Data + Inventory**.
+Dibangun bertahap (lihat `docs/`). Fase berjalan: **PHASE 4 — Request**.
 
 | Phase | Status |
 |-------|--------|
 | 0 — Analysis (Excel mapping, ERD, desain) | ✅ `docs/` |
 | 1 — Project Setup (Laravel + React + MySQL + Sanctum, jalan lokal) | ✅ `docs/phase-1-report.md` |
 | 2 — Auth + RBAC (+ import divisi & karyawan dari Excel) | ✅ `docs/phase-2-report.md` |
-| 3 — Master Data + Inventory + Calculation Engine | 🚧 |
+| 3 — Master Data + Inventory + Calculation Engine (+ import 8.957 barang dari Excel) | ✅ `docs/phase-3-report.md` |
 | 4 — Request · 5 — NPBG + Pickup · 6 — Stock Opname · 7 — PPB + Purchasing | ⬜ |
 | 8 — Tracking · 9 — Dashboard · 10 — Report + Export | ⬜ |
+
+> `migrate:fresh --seed` menjalankan import Excel penuh (~2–3 menit). Untuk reset cepat tanpa import:
+> `php artisan migrate:fresh && php artisan db:seed --class=SiteSeeder && php artisan db:seed --class=RbacSeeder && php artisan db:seed --class=UserSeeder`
 
 ## Setup lokal
 

@@ -7,6 +7,7 @@ use App\Http\Requests\Item\StoreItemRequest;
 use App\Http\Requests\Item\UpdateItemRequest;
 use App\Http\Resources\ItemResource;
 use App\Models\Item;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 
@@ -92,7 +93,7 @@ class ItemController extends Controller
         return new ItemResource($item->load('category', 'unit', 'snapshot'));
     }
 
-    public function destroy(Item $item): \Illuminate\Http\JsonResponse
+    public function destroy(Item $item): JsonResponse
     {
         $item->delete();
 
