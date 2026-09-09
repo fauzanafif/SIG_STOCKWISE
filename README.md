@@ -12,7 +12,7 @@ Monorepo:
 
 ## Status pembangunan
 
-Dibangun bertahap (lihat `docs/`). Fase berjalan: **PHASE 4 — Request**.
+Dibangun bertahap (lihat `docs/`). Status: **10 fase selesai** — siap uji pakai.
 
 | Phase | Status |
 |-------|--------|
@@ -20,8 +20,13 @@ Dibangun bertahap (lihat `docs/`). Fase berjalan: **PHASE 4 — Request**.
 | 1 — Project Setup (Laravel + React + MySQL + Sanctum, jalan lokal) | ✅ `docs/phase-1-report.md` |
 | 2 — Auth + RBAC (+ import divisi & karyawan dari Excel) | ✅ `docs/phase-2-report.md` |
 | 3 — Master Data + Inventory + Calculation Engine (+ import 8.957 barang dari Excel) | ✅ `docs/phase-3-report.md` |
-| 4 — Request · 5 — NPBG + Pickup · 6 — Stock Opname · 7 — PPB + Purchasing | ⬜ |
-| 8 — Tracking · 9 — Dashboard · 10 — Report + Export | ⬜ |
+| 4 — Request (buat → review + cek fisik → reserve) | ✅ `docs/phase-4-report.md` |
+| 5 — NPBG + Pickup (stok turun saat pickup) | ✅ `docs/phase-5-report.md` |
+| 6 — Stock Opname (selisih → adjustment saat approve) | ✅ `docs/phase-6-report.md` |
+| 7 — PPB + Purchasing (PPB → PO → Receiving → stok naik saat confirm) | ✅ `docs/phase-7-report.md` |
+| 8 — Tracking (Lend/Borrow/STPP/Ban Luar/Maintenance/Manufaktur/Bekas) | ✅ `docs/phase-8-report.md` |
+| 9 — Dashboard per peran (KPI + chart) | ✅ `docs/phase-9-report.md` |
+| 10 — Laporan & Export (Excel / CSV / PDF) | ✅ `docs/phase-10-report.md` |
 
 > `migrate:fresh --seed` menjalankan import Excel penuh (~2–3 menit). Untuk reset cepat tanpa import:
 > `php artisan migrate:fresh && php artisan db:seed --class=SiteSeeder && php artisan db:seed --class=RbacSeeder && php artisan db:seed --class=UserSeeder`
@@ -38,7 +43,7 @@ composer install
 cp .env.example .env
 php artisan key:generate
 # sesuaikan DB_* di .env (default: MySQL, db `stockwise`, root tanpa password), lalu:
-php artisan migrate --seed       # RBAC + 11 akun dev + import divisi/karyawan dari Excel
+php artisan migrate --seed       # RBAC + akun dev + import master dari Excel (~2-3 menit)
 php artisan serve --port=8001    # http://127.0.0.1:8001
 ```
 
@@ -68,18 +73,19 @@ dengan URL backend.
 
 ### Akun uji (development)
 
-Dibuat oleh seeder — lihat `backend/database/seeders/`. Password dev: `password` (bukan untuk produksi).
+Dibuat oleh `backend/database/seeders/UserSeeder.php`. Login pakai **username atau email**.
+Password dev semua akun: **`Password@26`** (bukan untuk produksi).
 
-| Role | username |
-|------|----------|
-| Super Admin | `superadmin` |
-| Admin Gudang | `admingudang` |
-| Anak Gudang | `anakgudang1`, `anakgudang2` |
-| Lapangan Gudang | `lapangan1`, `lapangan2` |
-| Purchasing | `purchasing` |
-| BOS | `bos` |
-| Karyawan | `karyawan1`, `karyawan2` |
-| Karyawan (site BPN) | `karyawanbpn` |
+| Role | username | email |
+|------|----------|-------|
+| Super Admin | `superadmin` | `superadmin@gmail.com` |
+| Admin Gudang | `admingudang` | `admingudang@gmail.com` |
+| Admin Lapangan (lapangan gudang) | `adminlapangan` | `adminlapangan@gmail.com` |
+| Purchasing | `purchasing` | `purchasing@gmail.com` |
+| BOS | `bos` | `bos@gmail.com` |
+| Karyawan | `kariawan` | `kariawan@gmail.com` |
+| Anak Gudang / Stock Opname | `anakgudang1`, `anakgudang2` | `anakgudang1@gmail.com`, … |
+| Karyawan (site BPN) | `karyawanbpn` | `karyawanbpn@gmail.com` |
 
 ### Testing
 

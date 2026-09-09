@@ -71,6 +71,34 @@ class ItemController extends Controller
         return ItemResource::collection($query->paginate($perPage)->withQueryString());
     }
 
+    /** Lightweight search for the item picker (requests / PPB). */
+    public function lookup(Request $request): JsonResponse
+    {
+        $search = $request->string('search')->trim()->value();
+        if (mb_strlen($search) < 2) {
+            return response()->json(['data' => []]);
+        }
+
+        $items = Item::query()
+            ->where('is_active', true)
+            ->where(fn ($q) => $q->where('code', 'like', "%{$search}%")->orWhere('description', 'like', "%{$search}%"))
+            ->with(['unit:id,code', 'snapshot:item_id,available,stock_known'])
+            ->orderBy('code')
+            ->limit(15)
+            ->get()
+            ->map(fn (Item $i) => [
+                'id' => $i->id,
+                'code' => $i->code,
+                'description' => $i->description,
+                'unit' => $i->unit?->code,
+                'default_warehouse_id' => $i->default_warehouse_id,
+                'available' => $i->snapshot?->available,
+                'stock_known' => (bool) ($i->snapshot?->stock_known ?? false),
+            ]);
+
+        return response()->json(['data' => $items]);
+    }
+
     public function show(Item $item): ItemResource
     {
         return new ItemResource($item->load([

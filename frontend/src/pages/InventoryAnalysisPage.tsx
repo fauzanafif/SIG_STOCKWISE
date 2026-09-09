@@ -2,7 +2,9 @@ import { useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useInventoryAnalysis } from '@/features/inventory/api'
 import { api, apiErrorMessage } from '@/lib/api'
+import { Boxes } from 'lucide-react'
 import { useAuth } from '@/auth/AuthContext'
+import { PageHeader } from '@/components/PageHeader'
 import { DataTable, Pagination, type Column } from '@/components/DataTable'
 import { PriorityBadge, StatusBadge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -50,23 +52,19 @@ export function InventoryAnalysisPage() {
   })
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <h1 className="text-xl font-semibold">Analisis Inventory (STOCKWISE)</h1>
-          <p className="text-sm text-muted-foreground">Selisih · Status · Defisit · Priority · Rekomendasi</p>
-        </div>
-        {hasPermission('inventory.view_analysis') && (
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={recompute.isPending}
-            onClick={() => recompute.mutate()}
-          >
-            {recompute.isPending ? 'Menghitung…' : 'Hitung ulang'}
-          </Button>
-        )}
-      </div>
+    <div className="space-y-5">
+      <PageHeader
+        title="Analisis Inventory"
+        subtitle="Selisih · Status · Defisit · Priority · Rekomendasi"
+        icon={<Boxes className="size-5" />}
+        actions={
+          hasPermission('inventory.view_analysis') ? (
+            <Button variant="outline" size="sm" disabled={recompute.isPending} onClick={() => recompute.mutate()}>
+              {recompute.isPending ? 'Menghitung…' : 'Hitung ulang'}
+            </Button>
+          ) : undefined
+        }
+      />
 
       {data?.run && (
         <Card>

@@ -25,6 +25,17 @@ class ItemApiTest extends TestCase
         $this->getJson('/api/items')->assertForbidden();
     }
 
+    public function test_karyawan_can_use_item_lookup_but_not_full_index(): void
+    {
+        Item::factory()->create(['code' => 'BAN.777', 'description' => 'BAN LUAR STEEL']);
+        $this->actingAsRole('karyawan');
+
+        $this->getJson('/api/items')->assertForbidden();
+        $this->getJson('/api/items/lookup?search=BAN')->assertOk()
+            ->assertJsonPath('data.0.code', 'BAN.777');
+        $this->getJson('/api/items/lookup?search=b')->assertOk()->assertJsonCount(0, 'data');
+    }
+
     public function test_index_lists_paginated_items(): void
     {
         Item::factory()->count(30)->create();

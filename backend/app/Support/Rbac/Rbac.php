@@ -63,7 +63,8 @@ final class Rbac
             'master.employee.manage' => 'Kelola karyawan (roster)',
         ],
         'item_inventory' => [
-            'item.view' => 'Lihat barang',
+            'item.view' => 'Lihat barang (halaman Master Barang)',
+            'item.lookup' => 'Cari barang (untuk request/PPB)',
             'item.create' => 'Buat barang',
             'item.update' => 'Ubah barang',
             'item.delete' => 'Hapus barang',
@@ -186,6 +187,7 @@ final class Rbac
 
         'karyawan' => [
             'profile.view_own', 'profile.update_own', 'notification.view_own',
+            'item.lookup', // cari/pilih barang saat buat request (bukan halaman Master Barang)
             'request.create', 'request.view_own', 'request.update_own', 'request.cancel_own',
             'npbg.view_own', 'npbg.print',
             'dashboard.karyawan',
@@ -252,6 +254,7 @@ final class Rbac
         'purchasing' => [
             'profile.view_own', 'profile.update_own', 'notification.view_own',
             'master.vendor.view', 'master.vendor.manage', 'master.category.view', 'master.unit.view',
+            'master.warehouse.view',
             'item.view', 'item.alias.view',
             'inventory.view', 'inventory.view_analysis', 'stock_movement.view',
             'ppb.view', 'ppb.create', 'ppb.view_own', 'ppb.review', 'ppb.approve', 'ppb.reject', 'ppb.amend', 'ppb.close',

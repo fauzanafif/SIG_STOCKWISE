@@ -1,0 +1,35 @@
+<?php
+
+namespace App\Models;
+
+use Illuminate\Database\Eloquent\Model;
+
+class PpbItem extends Model
+{
+    protected $guarded = ['id'];
+
+    protected function casts(): array
+    {
+        return ['qty' => 'float', 'qty_ordered' => 'float', 'qty_received' => 'float', 'shortage_qty' => 'float'];
+    }
+
+    public function ppb()
+    {
+        return $this->belongsTo(Ppb::class);
+    }
+
+    public function item()
+    {
+        return $this->belongsTo(Item::class);
+    }
+
+    public function unit()
+    {
+        return $this->belongsTo(Unit::class);
+    }
+
+    public function requestItem()
+    {
+        return $this->belongsTo(MaterialRequestItem::class, 'material_request_item_id');
+    }
+}

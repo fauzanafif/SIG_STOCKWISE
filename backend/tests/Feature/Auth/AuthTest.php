@@ -65,9 +65,22 @@ class AuthTest extends TestCase
             ->assertJsonValidationErrors('username');
     }
 
+    public function test_login_can_use_email(): void
+    {
+        User::factory()->create([
+            'username' => 'agus',
+            'email' => 'agus@example.com',
+            'password' => Hash::make('secret123'),
+        ]);
+
+        $this->postJson('/api/login', ['username' => 'agus@example.com', 'password' => 'secret123'])
+            ->assertOk()
+            ->assertJsonPath('user.username', 'agus');
+    }
+
     public function test_login_is_rate_limited(): void
     {
-        for ($i = 0; $i < 6; $i++) {
+        for ($i = 0; $i < 20; $i++) {
             $this->postJson('/api/login', ['username' => 'x', 'password' => 'y']);
         }
 

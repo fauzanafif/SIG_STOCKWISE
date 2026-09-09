@@ -1,50 +1,143 @@
+import { Link } from 'react-router-dom'
+import {
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Cell,
+  Legend,
+  Pie,
+  PieChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from 'recharts'
+import { LayoutDashboard, TrendingUp } from 'lucide-react'
 import { useAuth } from '@/auth/AuthContext'
+import { useDashboard, type DashboardCard } from '@/features/dashboard/api'
+import { PageHeader } from '@/components/PageHeader'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { RequestStatusBadge } from '@/components/ui/request-badge'
+import { cn } from '@/lib/utils'
+
+const TONE: Record<DashboardCard['tone'], string> = {
+  default: 'text-foreground',
+  success: 'text-emerald-600',
+  warning: 'text-amber-600',
+  danger: 'text-red-600',
+}
+
+const PIE_COLORS = ['#2563eb', '#0ea5e9', '#22c55e', '#f59e0b', '#ef4444', '#8b5cf6', '#14b8a6', '#64748b']
 
 export function DashboardPage() {
   const { user } = useAuth()
+  const { data, isLoading } = useDashboard()
   if (!user) return null
 
   return (
-    <div className="space-y-4 max-w-2xl">
-      <Card>
-        <CardHeader>
-          <CardTitle>Selamat datang, {user.name}</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-2 text-sm">
-          <p className="text-muted-foreground">
-            Dashboard per role menyusul di PHASE 9. Ini halaman sementara untuk memverifikasi auth &amp; RBAC.
-          </p>
-          <dl className="grid grid-cols-[8rem_1fr] gap-y-1">
-            <dt className="text-muted-foreground">Username</dt>
-            <dd>{user.username}</dd>
-            <dt className="text-muted-foreground">Role</dt>
-            <dd>{user.roles.join(', ')}</dd>
-            <dt className="text-muted-foreground">Site</dt>
-            <dd>{user.site ? `${user.site.name} (${user.site.code})` : '—'}</dd>
-            <dt className="text-muted-foreground">Permission</dt>
-            <dd>{user.permissions.length} permission aktif</dd>
-          </dl>
-        </CardContent>
-      </Card>
+    <div className="space-y-6">
+      <PageHeader
+        title={`Selamat datang, ${user.name.split(' ')[0]}`}
+        subtitle={`${user.roles.join(', ')}${user.site ? ` · ${user.site.name}` : ''}`}
+        icon={<LayoutDashboard className="size-5" />}
+      />
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Permission Anda</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <ul className="flex flex-wrap gap-1.5">
-            {user.permissions.map((p) => (
-              <li
-                key={p}
-                className="rounded bg-secondary px-2 py-0.5 text-xs text-secondary-foreground"
+      {isLoading && <p className="text-muted-foreground">Memuat ringkasan…</p>}
+
+      {data && data.cards.length > 0 && (
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+          {data.cards.map((c) => (
+            <div key={c.key} className="card-surface p-4">
+              <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{c.label}</div>
+              <div className={cn('mt-1 text-2xl font-semibold tabular-nums', TONE[c.tone])}>{c.value}</div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div className="grid gap-4 lg:grid-cols-2">
+        {data?.charts.request_status && data.charts.request_status.length > 0 && (
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Status Request</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <ResponsiveContainer width="100%" height={240}>
+                <PieChart>
+                  <Pie
+                    data={data.charts.request_status}
+                    dataKey="value"
+                    nameKey="name"
+                    innerRadius={50}
+                    outerRadius={85}
+                    paddingAngle={2}
+                  >
+                    {data.charts.request_status.map((_, i) => (
+                      <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />
+                    ))}
+                  </Pie>
+                  <Tooltip />
+                  <Legend />
+                </PieChart>
+              </ResponsiveContainer>
+            </CardContent>
+          </Card>
+        )}
+
+        {data?.charts.stock_movement_14d && (
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-base">
+                <TrendingUp className="size-4" /> Pergerakan Stok 14 Hari
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <ResponsiveContainer width="100%" height={240}>
+                <BarChart data={data.charts.stock_movement_14d}>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                  <XAxis dataKey="name" tick={{ fontSize: 10 }} tickFormatter={(v) => String(v).slice(5)} />
+                  <YAxis tick={{ fontSize: 10 }} allowDecimals={false} />
+                  <Tooltip />
+                  <Legend />
+                  <Bar dataKey="in" name="Masuk" fill="#22c55e" radius={[3, 3, 0, 0]} />
+                  <Bar dataKey="out" name="Keluar" fill="#ef4444" radius={[3, 3, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </CardContent>
+          </Card>
+        )}
+      </div>
+
+      {data?.lists.recent_requests && data.lists.recent_requests.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Request Terbaru</CardTitle>
+          </CardHeader>
+          <CardContent className="divide-y">
+            {data.lists.recent_requests.map((r) => (
+              <Link
+                key={r.id}
+                to={`/requests/${r.id}`}
+                className="flex items-center justify-between py-2 text-sm hover:text-primary"
               >
-                {p}
-              </li>
+                <span className="font-mono text-xs">{r.number}</span>
+                <span className="flex items-center gap-3">
+                  <RequestStatusBadge status={r.status} />
+                  <span className="text-muted-foreground">{r.date}</span>
+                </span>
+              </Link>
             ))}
-          </ul>
-        </CardContent>
-      </Card>
+          </CardContent>
+        </Card>
+      )}
+
+      {data && data.cards.length === 0 && (
+        <Card>
+          <CardContent className="py-10 text-center text-sm text-muted-foreground">
+            Belum ada ringkasan untuk peran Anda. Gunakan menu di samping untuk mulai bekerja.
+          </CardContent>
+        </Card>
+      )}
     </div>
   )
 }

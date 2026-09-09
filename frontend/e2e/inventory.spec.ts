@@ -3,8 +3,8 @@ import { expect, test } from '@playwright/test'
 // PHASE 3 E2E — requires seeded backend (:8001) with imported items.
 test('admin gudang browses items and inventory analysis', async ({ page }) => {
   await page.goto('/login')
-  await page.getByLabel('Username').fill('admingudang')
-  await page.getByLabel('Password').fill('password')
+  await page.getByLabel('Username / Email').fill('admingudang')
+  await page.getByLabel('Password').fill('Password@26')
   await page.getByRole('button', { name: 'Masuk' }).click()
   await expect(page.getByText('Selamat datang, Admin Gudang')).toBeVisible()
 
@@ -19,8 +19,8 @@ test('admin gudang browses items and inventory analysis', async ({ page }) => {
 
 test('karyawan cannot reach the items page', async ({ page }) => {
   await page.goto('/login')
-  await page.getByLabel('Username').fill('karyawan1')
-  await page.getByLabel('Password').fill('password')
+  await page.getByLabel('Username / Email').fill('kariawan')
+  await page.getByLabel('Password').fill('Password@26')
   await page.getByRole('button', { name: 'Masuk' }).click()
   await expect(page.getByText('Selamat datang')).toBeVisible()
 

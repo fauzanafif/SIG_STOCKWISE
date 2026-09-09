@@ -5,7 +5,7 @@ import { expect, test } from '@playwright/test'
 test.describe('authentication', () => {
   test('rejects bad credentials', async ({ page }) => {
     await page.goto('/login')
-    await page.getByLabel('Username').fill('superadmin')
+    await page.getByLabel('Username / Email').fill('superadmin')
     await page.getByLabel('Password').fill('wrong-password')
     await page.getByRole('button', { name: 'Masuk' }).click()
 
@@ -15,8 +15,8 @@ test.describe('authentication', () => {
 
   test('logs in and reaches the dashboard, then logs out', async ({ page }) => {
     await page.goto('/login')
-    await page.getByLabel('Username').fill('admingudang')
-    await page.getByLabel('Password').fill('password')
+    await page.getByLabel('Username / Email').fill('admingudang')
+    await page.getByLabel('Password').fill('Password@26')
     await page.getByRole('button', { name: 'Masuk' }).click()
 
     await expect(page.getByText('Selamat datang, Admin Gudang')).toBeVisible()

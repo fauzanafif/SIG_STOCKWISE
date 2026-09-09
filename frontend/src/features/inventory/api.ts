@@ -40,6 +40,41 @@ export function useItem(id: number | null) {
   })
 }
 
+export interface ItemLookupResult {
+  id: number
+  code: string
+  description: string
+  unit: string | null
+  default_warehouse_id: number | null
+  available: number | null
+  stock_known: boolean
+}
+
+export function useItemLookup(search: string) {
+  return useQuery({
+    queryKey: ['items', 'lookup', search],
+    enabled: search.trim().length >= 2,
+    queryFn: async () => {
+      const { data } = await api.get<{ data: ItemLookupResult[] }>('/api/items/lookup', {
+        params: { search },
+      })
+      return data.data
+    },
+    placeholderData: keepPreviousData,
+  })
+}
+
+export function useWarehouses() {
+  return useQuery({
+    queryKey: ['warehouses'],
+    queryFn: async () => {
+      const { data } = await api.get<{ data: Array<{ id: number; code: string; name: string }> }>('/api/warehouses')
+      return data.data
+    },
+    staleTime: 5 * 60_000,
+  })
+}
+
 export function useCategoryTree() {
   return useQuery({
     queryKey: ['categories', 'tree'],

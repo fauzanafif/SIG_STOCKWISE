@@ -1,0 +1,38 @@
+<?php
+
+namespace App\Models;
+
+use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Model;
+
+class PurchaseOrder extends Model
+{
+    use HasFactory;
+
+    protected $guarded = ['id'];
+
+    protected function casts(): array
+    {
+        return ['date' => 'date', 'expected_date' => 'date', 'approved_at' => 'datetime', 'subtotal' => 'float', 'tax' => 'float', 'total' => 'float'];
+    }
+
+    public function items()
+    {
+        return $this->hasMany(PurchaseOrderItem::class);
+    }
+
+    public function vendor()
+    {
+        return $this->belongsTo(Vendor::class);
+    }
+
+    public function ppb()
+    {
+        return $this->belongsTo(Ppb::class);
+    }
+
+    public function receivings()
+    {
+        return $this->hasMany(Receiving::class);
+    }
+}

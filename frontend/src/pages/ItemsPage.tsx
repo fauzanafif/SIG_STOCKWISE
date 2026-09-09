@@ -1,5 +1,7 @@
 import { useState } from 'react'
+import { Package } from 'lucide-react'
 import { useItems } from '@/features/inventory/api'
+import { PageHeader } from '@/components/PageHeader'
 import { DataTable, Pagination, type Column } from '@/components/DataTable'
 import { PriorityBadge, StatusBadge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
@@ -47,13 +49,12 @@ export function ItemsPage() {
   })
 
   return (
-    <div className="space-y-4">
-      <div>
-        <h1 className="text-xl font-semibold">Master Barang</h1>
-        <p className="text-sm text-muted-foreground">
-          {data ? `${data.meta.total} barang` : 'Memuat…'} — data dari DATA.xlsx
-        </p>
-      </div>
+    <div className="space-y-5">
+      <PageHeader
+        title="Master Barang"
+        subtitle={`${data ? `${data.meta.total} barang` : 'Memuat…'} — data dari DATA.xlsx`}
+        icon={<Package className="size-5" />}
+      />
 
       <div className="flex flex-wrap gap-2">
         <Input

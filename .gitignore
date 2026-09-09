@@ -2,6 +2,9 @@
 *.xlsx
 /data-reference/
 
+# Personal Windows Downloads folder — accidentally copied in, not part of the app
+/frontend/Downloads/
+
 # OS / editor
 .DS_Store
 Thumbs.db

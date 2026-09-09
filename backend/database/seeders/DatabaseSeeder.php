@@ -12,6 +12,7 @@ class DatabaseSeeder extends Seeder
             SiteSeeder::class,
             RbacSeeder::class,
             UserSeeder::class,
+            TrackingSeeder::class,
         ]);
 
         // Master data from the company Excel files (departments, employees, units,

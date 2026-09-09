@@ -32,7 +32,7 @@ describe('LoginPage', () => {
 
     renderWithProviders(<LoginPage />)
 
-    await userEvent.type(screen.getByLabelText('Username'), 'admingudang')
+    await userEvent.type(screen.getByLabelText(/username/i), 'admingudang')
     await userEvent.type(screen.getByLabelText('Password'), 'password')
     await userEvent.click(screen.getByRole('button', { name: 'Masuk' }))
 
@@ -52,7 +52,7 @@ describe('LoginPage', () => {
 
     renderWithProviders(<LoginPage />)
 
-    await userEvent.type(screen.getByLabelText('Username'), 'x')
+    await userEvent.type(screen.getByLabelText(/username/i), 'x')
     await userEvent.type(screen.getByLabelText('Password'), 'y')
     await userEvent.click(screen.getByRole('button', { name: 'Masuk' }))
 

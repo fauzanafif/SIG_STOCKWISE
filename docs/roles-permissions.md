@@ -45,7 +45,7 @@ Format slug: `{resource}.{action}`. Action umum: `view` (list+detail semua), `vi
 `master.employee.view/create/update/delete`
 
 ### item & inventory
-`item.view`, `item.create`, `item.update`, `item.delete`, `item.import`
+`item.view` (halaman Master Barang), `item.lookup` (cari barang utk request/PPB), `item.create`, `item.update`, `item.delete`, `item.import`
 `item.safety_stock.view`, `item.safety_stock.update`, `item.safety_stock.resolve_conflict`
 `item.lead_time.update`
 `item.alias.view`, `item.alias.match`  *(halaman Cocokkan Barang)*
