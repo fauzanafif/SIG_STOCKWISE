@@ -1,0 +1,20 @@
+# Reference Excel data (kept locally, not versioned — see docs/excel-data-mapping.md)
+*.xlsx
+/data-reference/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
+*.swp
+
+# Root-level tooling
+/node_modules/
+/vendor/
+
+# Env
+.env
+.env.*
+!.env.example
