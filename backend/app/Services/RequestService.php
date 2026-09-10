@@ -9,6 +9,7 @@ use App\Models\MaterialRequestItem;
 use App\Models\StockReservation;
 use App\Models\User;
 use App\Services\Inventory\StockLedgerService;
+use App\Support\Network\IpClassifier;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
@@ -25,21 +26,29 @@ class RequestService
         private readonly StockLedgerService $ledger,
     ) {}
 
-    /** @param array{purpose:string, work_location?:?string, department_id?:?int, needed_date?:?string, items:array<int,array{item_id?:?int, description_raw:string, qty_requested:float, unit_id?:?int}>} $data */
+    /** @param array{purpose:string, notes?:?string, requester_name?:?string, requester_wa?:?string, request_date?:?string, work_location?:?string, department_id?:?int, needed_date?:?string, request_ip?:?string, items:array<int,array{item_id?:?int, description_raw:string, qty_requested:float, unit_id?:?int}>} $data */
     public function create(User $user, array $data): MaterialRequest
     {
         return DB::transaction(function () use ($user, $data) {
             $site = $user->site;
             $prefix = $site ? Str::of($site->code)->afterLast('-')->value() : 'REQ';
 
+            $ip = $data['request_ip'] ?? null;
+
             $request = MaterialRequest::create([
                 'number' => $this->numbers->next('REQ', $prefix),
                 'requester_id' => $user->id,
+                'requester_name' => $data['requester_name'] ?? $user->name,
+                'requester_wa' => $data['requester_wa'] ?? $user->phone,
                 'department_id' => $data['department_id'] ?? $user->employee?->department_id,
                 'site_id' => $site?->id ?? $data['site_id'],
                 'purpose' => $data['purpose'],
+                'notes' => $data['notes'] ?? null,
+                'request_date' => $data['request_date'] ?? now()->toDateString(),
                 'work_location' => $data['work_location'] ?? null,
                 'needed_date' => $data['needed_date'] ?? null,
+                'request_ip' => $ip,
+                'network_label' => IpClassifier::classify($ip),
                 'status' => 'DRAFT',
                 'created_by' => $user->id,
             ]);
@@ -58,6 +67,10 @@ class RequestService
         return DB::transaction(function () use ($request, $data) {
             $request->fill(array_filter([
                 'purpose' => $data['purpose'] ?? null,
+                'notes' => $data['notes'] ?? null,
+                'requester_name' => $data['requester_name'] ?? null,
+                'requester_wa' => $data['requester_wa'] ?? null,
+                'request_date' => $data['request_date'] ?? null,
                 'work_location' => $data['work_location'] ?? null,
                 'department_id' => $data['department_id'] ?? null,
                 'needed_date' => $data['needed_date'] ?? null,

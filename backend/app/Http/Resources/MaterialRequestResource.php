@@ -3,6 +3,7 @@
 namespace App\Http\Resources;
 
 use App\Models\MaterialRequest;
+use App\Support\Network\IpClassifier;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
@@ -16,8 +17,19 @@ class MaterialRequestResource extends JsonResource
             'number' => $this->number,
             'status' => $this->status,
             'purpose' => $this->purpose,
+            'notes' => $this->notes,
+            'request_date' => $this->request_date?->toDateString(),
             'work_location' => $this->work_location,
             'needed_date' => $this->needed_date?->toDateString(),
+            // Diisi admin gudang, bukan peminta.
+            'npbg_no' => $this->npbg_no,
+            'ppb_no' => $this->ppb_no,
+            'requester_name' => $this->requester_name,
+            'requester_wa' => $this->requester_wa,
+            // Lokasi permintaan berdasarkan IP.
+            'request_ip' => $this->request_ip,
+            'network_label' => $this->network_label,
+            'network_label_text' => $this->network_label ? IpClassifier::label($this->network_label) : null,
             'requester' => [
                 'id' => $this->requester_id,
                 'name' => $this->whenLoaded('requester', fn () => $this->requester?->name),

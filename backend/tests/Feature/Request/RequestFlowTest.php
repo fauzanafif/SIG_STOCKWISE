@@ -75,6 +75,68 @@ class RequestFlowTest extends TestCase
             ->assertJsonPath('data.items.0.projected_stock', 95);
     }
 
+    public function test_request_form_fields_tanggal_peminta_uom(): void
+    {
+        $user = $this->karyawan();
+        $item = $this->stockedItem(100);
+
+        $res = $this->postJson('/api/requests', [
+            'purpose' => 'butuh spare part',
+            'request_date' => '2026-09-01',
+            'requester_name' => 'Pak Slamet (Produksi)',
+            'items' => [
+                ['item_id' => $item->id, 'qty_requested' => 3],
+                ['description_raw' => 'Majun', 'qty_requested' => 2],
+            ],
+        ])->assertCreated();
+
+        $res->assertJsonPath('data.request_date', '2026-09-01')
+            ->assertJsonPath('data.requester_name', 'Pak Slamet (Produksi)')
+            ->assertJsonPath('data.npbg_no', null)
+            ->assertJsonPath('data.ppb_no', null);
+        // UOM baris item ikut master barang otomatis
+        $this->assertNotNull(MaterialRequest::find($res->json('data.id'))->items()->whereNotNull('unit_id')->first());
+    }
+
+    public function test_request_auto_fills_whatsapp_and_network_label(): void
+    {
+        config(['stockwise.office.ip_ranges' => ['127.0.0.1', '10.0.0.0/8']]);
+
+        $user = $this->actingAsRole('karyawan', ['site_id' => $this->site->id, 'phone' => '0877-1111-2222']);
+        $item = $this->stockedItem(50);
+
+        // TestCase memakai IP 127.0.0.1 → OFFICE
+        $res = $this->postJson('/api/requests', [
+            'purpose' => 'butuh barang',
+            'notes' => 'ditunggu sore ini',
+            'items' => [['item_id' => $item->id, 'qty_requested' => 2]],
+        ])->assertCreated();
+
+        $res->assertJsonPath('data.requester_wa', '0877-1111-2222')
+            ->assertJsonPath('data.notes', 'ditunggu sore ini')
+            ->assertJsonPath('data.network_label', 'OFFICE')
+            ->assertJsonPath('data.network_label_text', 'Jaringan Kantor');
+        $this->assertNotNull($res->json('data.request_ip'));
+    }
+
+    public function test_only_admin_gudang_sets_npbg_and_ppb_no(): void
+    {
+        $user = $this->karyawan();
+        $item = $this->stockedItem(100);
+        $req = $this->createRequest($user, [['item_id' => $item->id, 'qty_requested' => 5]]);
+
+        // peminta tidak boleh isi No NPBG / Nomor PPB
+        $this->patchJson("/api/requests/{$req->id}/refs", ['npbg_no' => 'NA/25/IX/999'])
+            ->assertForbidden();
+
+        $this->actingAsRole('admin_gudang', ['site_id' => $this->site->id]);
+        $this->patchJson("/api/requests/{$req->id}/refs", [
+            'npbg_no' => 'NA/25/IX/999', 'ppb_no' => 'PPB/NA/25/IX/010',
+        ])->assertOk()
+            ->assertJsonPath('data.npbg_no', 'NA/25/IX/999')
+            ->assertJsonPath('data.ppb_no', 'PPB/NA/25/IX/010');
+    }
+
     public function test_tc_req_002_003_review_then_reserve_when_stock_sufficient(): void
     {
         $karyawan = $this->karyawan();

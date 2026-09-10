@@ -1,13 +1,15 @@
-import { useState } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { useRequest, useRequestAction, usePhysicalCheck } from '@/features/requests/api'
+import { useRequest, useRequestAction, usePhysicalCheck, useSetRequestRefs } from '@/features/requests/api'
 import { useCreateNpbgFromRequest } from '@/features/npbg/api'
 import { useCreatePpbFromRequest } from '@/features/purchasing/api'
 import { useAuth } from '@/auth/AuthContext'
 import { apiErrorMessage } from '@/lib/api'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
 import { RequestStatusBadge } from '@/components/ui/request-badge'
 import type { RequestLine } from '@/types/request'
 
@@ -40,15 +42,37 @@ export function RequestDetailPage() {
       </div>
 
       <Card>
-        <CardContent className="grid grid-cols-2 gap-y-1 p-4 text-sm sm:grid-cols-3">
-          <Field label="Peminta" value={req.requester.name} />
-          <Field label="Lokasi kerja" value={req.work_location ?? '—'} />
+        <CardContent className="grid grid-cols-2 gap-y-2 p-4 text-sm sm:grid-cols-3">
+          <Field
+            label="Tanggal"
+            value={req.request_date ? new Date(req.request_date).toLocaleDateString('id-ID') : '—'}
+          />
+          <Field label="Nama Peminta" value={req.requester_name ?? req.requester.name ?? '—'} />
+          <Field label="WhatsApp" value={req.requester_wa ?? '—'} />
           <Field label="Site" value={req.site?.code ?? '—'} />
+          <Field label="Lokasi permintaan" value={<NetworkTag req={req} canSeeIp={hasPermission('request.review')} />} />
           <Field label="Dikirim" value={req.submitted_at ? new Date(req.submitted_at).toLocaleString('id-ID') : '—'} />
           <Field label="Reviewer" value={req.reviewer?.name ?? '—'} />
+          <div className="sm:col-span-3">
+            <div className="text-muted-foreground">Keterangan</div>
+            <div>{req.purpose || '—'}</div>
+          </div>
+          {req.notes && (
+            <div className="sm:col-span-3">
+              <div className="text-muted-foreground">Catatan</div>
+              <div className="whitespace-pre-wrap">{req.notes}</div>
+            </div>
+          )}
           {req.cancel_reason && <Field label="Alasan batal" value={req.cancel_reason} />}
         </CardContent>
       </Card>
+
+      <RefsCard
+        requestId={requestId}
+        npbgNo={req.npbg_no}
+        ppbNo={req.ppb_no}
+        canEdit={hasPermission('request.review')}
+      />
 
       {/* actions */}
       <div className="flex flex-wrap gap-2">
@@ -133,12 +157,102 @@ export function RequestDetailPage() {
   )
 }
 
-function Field({ label, value }: { label: string; value?: string | null }) {
+function Field({ label, value }: { label: string; value?: ReactNode }) {
   return (
     <div>
       <div className="text-muted-foreground">{label}</div>
       <div>{value}</div>
     </div>
+  )
+}
+
+function NetworkTag({
+  req,
+  canSeeIp,
+}: {
+  req: { network_label: string | null; network_label_text: string | null; request_ip: string | null }
+  canSeeIp: boolean
+}) {
+  const variant =
+    req.network_label === 'OFFICE' ? 'success' : req.network_label === 'EXTERNAL' ? 'warning' : 'neutral'
+  return (
+    <span className="inline-flex flex-wrap items-center gap-2">
+      <Badge variant={variant}>{req.network_label_text ?? 'Tidak Diketahui'}</Badge>
+      {canSeeIp && req.request_ip && (
+        <span className="font-mono text-xs text-muted-foreground">{req.request_ip}</span>
+      )}
+    </span>
+  )
+}
+
+function RefsCard({
+  requestId,
+  npbgNo,
+  ppbNo,
+  canEdit,
+}: {
+  requestId: number
+  npbgNo: string | null
+  ppbNo: string | null
+  canEdit: boolean
+}) {
+  const setRefs = useSetRequestRefs(requestId)
+  const [npbg, setNpbg] = useState(npbgNo ?? '')
+  const [ppb, setPpb] = useState(ppbNo ?? '')
+  const [err, setErr] = useState<string | null>(null)
+
+  useEffect(() => {
+    setNpbg(npbgNo ?? '')
+    setPpb(ppbNo ?? '')
+  }, [npbgNo, ppbNo])
+
+  const dirty = npbg !== (npbgNo ?? '') || ppb !== (ppbNo ?? '')
+
+  if (!canEdit) {
+    return (
+      <Card>
+        <CardContent className="grid grid-cols-2 gap-y-1 p-4 text-sm">
+          <Field label="No NPBG" value={npbgNo ?? 'Belum diisi Admin Gudang'} />
+          <Field label="Nomor PPB" value={ppbNo ?? 'Belum diisi Admin Gudang'} />
+        </CardContent>
+      </Card>
+    )
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base">No NPBG &amp; Nomor PPB</CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <p className="text-xs text-muted-foreground">
+          Diisi oleh Admin Gudang. Terisi otomatis saat NPBG / PPB dibuat dari request ini, atau isi manual di sini.
+        </p>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <div className="space-y-1.5">
+            <Label>No NPBG</Label>
+            <Input value={npbg} onChange={(e) => setNpbg(e.target.value)} placeholder="mis. NA/25/IX/138" />
+          </div>
+          <div className="space-y-1.5">
+            <Label>Nomor PPB</Label>
+            <Input value={ppb} onChange={(e) => setPpb(e.target.value)} placeholder="mis. PPB/NA/25/IX/010" />
+          </div>
+        </div>
+        {err && <p className="text-sm text-destructive">{err}</p>}
+        <Button
+          size="sm"
+          disabled={!dirty || setRefs.isPending}
+          onClick={() =>
+            setRefs.mutate(
+              { npbg_no: npbg || null, ppb_no: ppb || null },
+              { onError: (e) => setErr(apiErrorMessage(e)) },
+            )
+          }
+        >
+          {setRefs.isPending ? 'Menyimpan…' : 'Simpan'}
+        </Button>
+      </CardContent>
+    </Card>
   )
 }
 

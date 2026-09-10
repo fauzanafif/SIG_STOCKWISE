@@ -1,7 +1,15 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
 import type { Paginated } from '@/types/inventory'
-import type { MaterialRequest, NewRequestLine } from '@/types/request'
+import type { MaterialRequest, NewRequestLine, Unit } from '@/types/request'
+
+export function useUnits() {
+  return useQuery({
+    queryKey: ['units'],
+    queryFn: async () => (await api.get<{ data: Unit[] }>('/api/units')).data.data,
+    staleTime: 10 * 60_000,
+  })
+}
 
 export function useRequests(params: { status?: string; mine?: boolean; search?: string; page?: number }) {
   return useQuery({
@@ -30,6 +38,10 @@ export function useCreateRequest() {
   return useMutation({
     mutationFn: async (payload: {
       purpose: string
+      notes?: string
+      requester_name?: string
+      requester_wa?: string
+      request_date?: string
       work_location?: string
       department_id?: number | null
       needed_date?: string | null
@@ -39,6 +51,21 @@ export function useCreateRequest() {
       return data.data
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ['requests'] }),
+  })
+}
+
+/** No NPBG / Nomor PPB — hanya admin gudang. */
+export function useSetRequestRefs(id: number) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (payload: { npbg_no?: string | null; ppb_no?: string | null }) => {
+      const { data } = await api.patch<{ data: MaterialRequest }>(`/api/requests/${id}/refs`, payload)
+      return data.data
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['request', id] })
+      qc.invalidateQueries({ queryKey: ['requests'] })
+    },
   })
 }
 

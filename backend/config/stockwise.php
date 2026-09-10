@@ -36,4 +36,22 @@ return [
         'reservation_expiry_days' => (int) env('STOCKWISE_RESERVATION_EXPIRY_DAYS', 14),
     ],
 
+    /*
+    |--------------------------------------------------------------------------
+    | Office network — validasi lokasi permintaan barang berdasarkan IP
+    |--------------------------------------------------------------------------
+    | Daftar IP / CIDR yang dianggap "jaringan kantor". Isi IP publik kantor
+    | di STOCKWISE_OFFICE_IP_RANGES (pisahkan koma), mis. "103.10.20.0/24,103.10.21.5".
+    | Default sudah mencakup jaringan lokal (LAN / localhost) untuk pengujian.
+    */
+    'office' => [
+        'ip_ranges' => array_values(array_filter(array_map(
+            'trim',
+            explode(',', (string) env(
+                'STOCKWISE_OFFICE_IP_RANGES',
+                '127.0.0.1,::1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16'
+            ))
+        ))),
+    ],
+
 ];

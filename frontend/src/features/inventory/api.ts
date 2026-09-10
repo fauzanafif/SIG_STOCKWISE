@@ -45,6 +45,7 @@ export interface ItemLookupResult {
   code: string
   description: string
   unit: string | null
+  unit_id: number | null
   default_warehouse_id: number | null
   available: number | null
   stock_known: boolean

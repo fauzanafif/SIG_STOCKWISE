@@ -35,8 +35,17 @@ export interface MaterialRequest {
   number: string
   status: RequestStatus
   purpose: string
+  notes: string | null
+  request_date: string | null
   work_location: string | null
   needed_date: string | null
+  npbg_no: string | null
+  ppb_no: string | null
+  requester_name: string | null
+  requester_wa: string | null
+  request_ip: string | null
+  network_label: 'OFFICE' | 'EXTERNAL' | 'UNKNOWN' | null
+  network_label_text: string | null
   requester: { id: number; name?: string }
   department?: { id: number; name: string } | null
   site?: { id: number; code: string; name?: string } | null
@@ -54,4 +63,10 @@ export interface NewRequestLine {
   description_raw?: string
   qty_requested: number
   unit_id?: number | null
+}
+
+export interface Unit {
+  id: number
+  code: string
+  name: string
 }

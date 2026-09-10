@@ -158,4 +158,28 @@ class TrackingFlowTest extends TestCase
         $this->actingAsRole('karyawan', ['site_id' => $this->site->id]);
         $this->postJson('/api/lend', ['description_raw' => 'x', 'qty' => 1])->assertForbidden();
     }
+
+    /** index + show tiap modul harus 200 (eager-load relasi tidak boleh salah nama). */
+    public function test_all_tracking_index_and_show_load_cleanly(): void
+    {
+        $this->actingAsRole('admin_gudang', ['site_id' => $this->site->id]);
+        $item = Item::factory()->create();
+        $asset = Asset::factory()->create(['site_id' => $this->site->id]);
+        $vendor = Vendor::factory()->create();
+
+        $created = [
+            'lend' => $this->postJson('/api/lend', ['item_id' => $item->id, 'qty' => 2, 'borrower_name' => 'X'])->json('data.id'),
+            'borrow' => $this->postJson('/api/borrow', ['description_raw' => 'Trafo', 'qty' => 1, 'lender_name' => 'Y'])->json('data.id'),
+            'stpp' => $this->postJson('/api/stpp', ['serial_no' => 'SN-1', 'item_id' => $item->id, 'description_raw' => 'Alat', 'holder_name_raw' => 'Z'])->json('data.id'),
+            'tyre-changes' => $this->postJson('/api/tyre-changes', ['asset_id' => $asset->id, 'position' => 'FRONT_L'])->json('data.id'),
+            'maintenance-orders' => $this->postJson('/api/maintenance-orders', ['asset_id' => $asset->id, 'site_id' => $this->site->id, 'problem_summary' => 'P'])->json('data.id'),
+            'manufacturing-orders' => $this->postJson('/api/manufacturing-orders', ['kind' => 'JASA', 'site_id' => $this->site->id, 'vendor_id' => $vendor->id])->json('data.id'),
+            'used-returns' => $this->postJson('/api/used-returns', ['items' => [['item_id' => $item->id, 'qty' => 1, 'condition' => 'USED']]])->json('data.id'),
+        ];
+
+        foreach ($created as $base => $id) {
+            $this->getJson("/api/{$base}")->assertOk()->assertJsonStructure(['data']);
+            $this->getJson("/api/{$base}/{$id}")->assertOk()->assertJsonPath('data.id', $id);
+        }
+    }
 }

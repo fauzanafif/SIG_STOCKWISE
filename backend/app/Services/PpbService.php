@@ -55,6 +55,8 @@ class PpbService
                 ]);
             }
 
+            $request->update(['ppb_no' => $request->ppb_no ?: $ppb->number]);
+
             return $ppb->load('items');
         });
     }

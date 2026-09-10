@@ -21,8 +21,10 @@ class DatabaseSeeder extends Seeder
         if (is_dir(config('stockwise.import_path'))) {
             $this->command->call('stockwise:import');
             $this->command->call('stockwise:analyze');
+            // Data contoh end-to-end (butuh master barang hasil import).
+            $this->call(DemoSeeder::class);
         } else {
-            $this->command->warn('stockwise.import_path tidak ada — lewati import Excel.');
+            $this->command->warn('stockwise.import_path tidak ada — lewati import Excel & data demo.');
         }
     }
 }

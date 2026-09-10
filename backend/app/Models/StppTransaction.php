@@ -21,6 +21,11 @@ class StppTransaction extends Model
         return $this->belongsTo(Item::class);
     }
 
+    public function unit()
+    {
+        return $this->belongsTo(Unit::class);
+    }
+
     public function serialUnit()
     {
         return $this->belongsTo(SerialUnit::class);

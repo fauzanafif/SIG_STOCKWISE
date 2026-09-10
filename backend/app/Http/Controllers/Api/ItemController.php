@@ -91,6 +91,7 @@ class ItemController extends Controller
                 'code' => $i->code,
                 'description' => $i->description,
                 'unit' => $i->unit?->code,
+                'unit_id' => $i->unit_id,
                 'default_warehouse_id' => $i->default_warehouse_id,
                 'available' => $i->snapshot?->available,
                 'stock_known' => (bool) ($i->snapshot?->stock_known ?? false),

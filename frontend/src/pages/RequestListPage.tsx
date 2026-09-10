@@ -5,10 +5,13 @@ import { useRequests } from '@/features/requests/api'
 import { useAuth } from '@/auth/AuthContext'
 import { PageHeader } from '@/components/PageHeader'
 import { DataTable, Pagination, type Column } from '@/components/DataTable'
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { RequestStatusBadge } from '@/components/ui/request-badge'
 import type { MaterialRequest } from '@/types/request'
+
+const fmtDate = (d: string | null) => (d ? new Date(d).toLocaleDateString('id-ID') : '—')
 
 const columns: Column<MaterialRequest>[] = [
   {
@@ -20,15 +23,33 @@ const columns: Column<MaterialRequest>[] = [
       </Link>
     ),
   },
-  { key: 'purpose', header: 'Keperluan', cell: (r) => r.purpose },
-  { key: 'requester', header: 'Peminta', cell: (r) => r.requester.name ?? '—' },
-  { key: 'items', header: 'Barang', cell: (r) => r.items_count ?? '—' },
-  { key: 'status', header: 'Status', cell: (r) => <RequestStatusBadge status={r.status} /> },
+  { key: 'date', header: 'Tanggal', cell: (r) => fmtDate(r.request_date ?? r.created_at) },
   {
-    key: 'created',
-    header: 'Dibuat',
-    cell: (r) => new Date(r.created_at).toLocaleDateString('id-ID'),
+    key: 'requester',
+    header: 'Peminta',
+    cell: (r) => (
+      <span className="inline-flex items-center gap-1.5">
+        {r.requester_name ?? r.requester.name ?? '—'}
+        {r.network_label === 'EXTERNAL' && (
+          <Badge variant="warning" title="Request dikirim dari luar jaringan kantor">
+            luar kantor
+          </Badge>
+        )}
+      </span>
+    ),
   },
+  { key: 'purpose', header: 'Keterangan', cell: (r) => r.purpose },
+  { key: 'items', header: 'Barang', cell: (r) => r.items_count ?? '—' },
+  {
+    key: 'refs',
+    header: 'NPBG / PPB',
+    cell: (r) => (
+      <span className="font-mono text-xs text-muted-foreground">
+        {r.npbg_no ?? '—'} / {r.ppb_no ?? '—'}
+      </span>
+    ),
+  },
+  { key: 'status', header: 'Status', cell: (r) => <RequestStatusBadge status={r.status} /> },
 ]
 
 export function RequestListPage() {

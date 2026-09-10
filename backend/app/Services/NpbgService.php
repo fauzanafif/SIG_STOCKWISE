@@ -72,7 +72,10 @@ class NpbgService
                 ]);
             }
 
-            $request->update(['status' => 'PREPARING']);
+            $request->update([
+                'status' => 'PREPARING',
+                'npbg_no' => $request->npbg_no ?: $npbg->number,
+            ]);
 
             return $npbg->load('items');
         });

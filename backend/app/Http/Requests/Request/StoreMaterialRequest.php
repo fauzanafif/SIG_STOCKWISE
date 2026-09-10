@@ -15,6 +15,10 @@ class StoreMaterialRequest extends FormRequest
     {
         return [
             'purpose' => ['required', 'string', 'max:255'],
+            'notes' => ['nullable', 'string', 'max:2000'],
+            'requester_name' => ['nullable', 'string', 'max:150'],
+            'requester_wa' => ['nullable', 'string', 'max:30'],
+            'request_date' => ['nullable', 'date'],
             'work_location' => ['nullable', 'string', 'max:150'],
             'department_id' => ['nullable', 'integer', 'exists:departments,id'],
             'needed_date' => ['nullable', 'date'],

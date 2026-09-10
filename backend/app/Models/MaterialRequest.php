@@ -17,14 +17,16 @@ class MaterialRequest extends Model
     ];
 
     protected $fillable = [
-        'number', 'requester_id', 'department_id', 'site_id', 'purpose', 'work_location',
-        'needed_date', 'status', 'submitted_at', 'reviewed_by', 'reviewed_at',
-        'completed_at', 'cancel_reason', 'created_by',
+        'number', 'requester_id', 'requester_name', 'requester_wa', 'department_id', 'site_id',
+        'purpose', 'notes', 'request_date', 'work_location', 'needed_date', 'status',
+        'npbg_no', 'ppb_no', 'request_ip', 'network_label',
+        'submitted_at', 'reviewed_by', 'reviewed_at', 'completed_at', 'cancel_reason', 'created_by',
     ];
 
     protected function casts(): array
     {
         return [
+            'request_date' => 'date',
             'needed_date' => 'date',
             'submitted_at' => 'datetime',
             'reviewed_at' => 'datetime',

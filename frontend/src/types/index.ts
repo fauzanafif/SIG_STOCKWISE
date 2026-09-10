@@ -3,6 +3,8 @@ export interface AuthUser {
   name: string
   username: string
   email: string | null
+  phone: string | null
+  position: string | null
   is_active: boolean
   site: { id: number; code: string; name: string } | null
   roles: string[]

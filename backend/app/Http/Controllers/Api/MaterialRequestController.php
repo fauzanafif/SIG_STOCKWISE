@@ -40,7 +40,10 @@ class MaterialRequestController extends Controller
 
     public function store(StoreMaterialRequest $request): JsonResponse
     {
-        $req = $this->service->create($request->user(), $request->validated());
+        $req = $this->service->create(
+            $request->user(),
+            $request->validated() + ['request_ip' => $request->ip()],
+        );
 
         return (new MaterialRequestResource($req->load('items.item:id,code', 'items.unit:id,code')))
             ->response()->setStatusCode(201);
@@ -102,6 +105,18 @@ class MaterialRequestController extends Controller
             ->whereIn('line_status', ['PENDING', 'PARTIAL'])
             ->update(['line_status' => 'NEED_PURCHASE']);
         $materialRequest->update(['status' => 'NEED_PURCHASE']);
+
+        return $this->fresh($materialRequest);
+    }
+
+    /** No NPBG / Nomor PPB — hanya admin gudang (permission request.review), bukan peminta. */
+    public function setRefs(Request $request, MaterialRequest $materialRequest): MaterialRequestResource
+    {
+        $data = $request->validate([
+            'npbg_no' => ['sometimes', 'nullable', 'string', 'max:40'],
+            'ppb_no' => ['sometimes', 'nullable', 'string', 'max:40'],
+        ]);
+        $materialRequest->update($data);
 
         return $this->fresh($materialRequest);
     }

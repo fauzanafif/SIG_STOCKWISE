@@ -60,7 +60,7 @@ Route::middleware('auth:sanctum')->group(function (): void {
         Route::get('/categories/tree', [MasterDataController::class, 'categoryTree'])->name('api.categories.tree');
     });
     Route::get('/units', [MasterDataController::class, 'units'])
-        ->middleware('permission:master.unit.view')->name('api.units');
+        ->middleware('permission:master.unit.view|request.create|ppb.create')->name('api.units');
     Route::get('/warehouses', [MasterDataController::class, 'warehouses'])
         ->middleware('permission:master.warehouse.view')->name('api.warehouses');
     Route::get('/warehouse-locations', [MasterDataController::class, 'warehouseLocations'])
@@ -107,6 +107,8 @@ Route::middleware('auth:sanctum')->group(function (): void {
         ->middleware('permission:request.update_own')->name('api.requests.submit');
     Route::post('/requests/{materialRequest}/review', [MaterialRequestController::class, 'review'])
         ->middleware('permission:request.review')->name('api.requests.review');
+    Route::match(['put', 'patch'], '/requests/{materialRequest}/refs', [MaterialRequestController::class, 'setRefs'])
+        ->middleware('permission:request.review')->name('api.requests.refs');
     Route::post('/requests/{materialRequest}/items/{item}/physical-check', [MaterialRequestController::class, 'physicalCheck'])
         ->middleware('permission:request.physical_check')->name('api.requests.physical-check');
     Route::post('/requests/{materialRequest}/reserve', [MaterialRequestController::class, 'reserve'])
