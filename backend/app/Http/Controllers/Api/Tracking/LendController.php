@@ -52,6 +52,32 @@ class LendController extends Controller
         return response()->json(['data' => $this->row($this->service->create($request->user(), $data))], 201);
     }
 
+    public function update(Request $request, LendTransaction $lend): JsonResponse
+    {
+        $data = $request->validate([
+            'item_id' => ['nullable', 'integer', 'exists:items,id'],
+            'description_raw' => ['nullable', 'string', 'max:400'],
+            'qty' => ['sometimes', 'numeric', 'gt:0'],
+            'unit_id' => ['nullable', 'integer', 'exists:units,id'],
+            'purpose' => ['sometimes', 'in:INTERNAL,PROJECT,RELASI'],
+            'borrower_name' => ['nullable', 'string', 'max:200'],
+            'customer_id' => ['nullable', 'integer', 'exists:customers,id'],
+            'project_id' => ['nullable', 'integer', 'exists:projects,id'],
+            'est_days' => ['nullable', 'integer', 'min:1', 'max:365'],
+            'out_date' => ['sometimes', 'date'],
+            'condition_out' => ['nullable', 'string', 'max:255'],
+        ]);
+
+        return response()->json(['data' => $this->row($this->service->update($lend, $data))]);
+    }
+
+    public function destroy(LendTransaction $lend): JsonResponse
+    {
+        $this->service->delete($lend);
+
+        return response()->json(['message' => 'Lend dihapus.']);
+    }
+
     public function return(Request $request, LendTransaction $lend): JsonResponse
     {
         $data = $request->validate([

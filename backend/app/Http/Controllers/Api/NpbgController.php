@@ -83,6 +83,26 @@ class NpbgController extends Controller
             ->response()->setStatusCode(201);
     }
 
+    public function update(Request $request, Npbg $npbg): NpbgResource
+    {
+        $data = $request->validate([
+            'classification' => ['sometimes', 'string', 'max:25'],
+            'customer_name' => ['sometimes', 'nullable', 'string', 'max:200'],
+            'project_name' => ['sometimes', 'nullable', 'string', 'max:200'],
+            'asset_ref' => ['sometimes', 'nullable', 'string', 'max:100'],
+            'requester_name' => ['sometimes', 'nullable', 'string', 'max:150'],
+            'notes' => ['sometimes', 'nullable', 'string'],
+            'items' => ['sometimes', 'array', 'min:1'],
+            'items.*.item_id' => ['nullable', 'integer', 'exists:items,id'],
+            'items.*.description_raw' => ['required_without:items.*.item_id', 'nullable', 'string', 'max:400'],
+            'items.*.qty' => ['required_with:items', 'numeric', 'gt:0'],
+            'items.*.unit_id' => ['nullable', 'integer', 'exists:units,id'],
+            'items.*.note' => ['nullable', 'string', 'max:255'],
+        ]);
+
+        return $this->fresh($this->service->update($npbg, $data));
+    }
+
     public function prepare(Npbg $npbg): NpbgResource
     {
         return $this->fresh($this->service->prepare($npbg));

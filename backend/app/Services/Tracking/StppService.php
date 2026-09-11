@@ -92,6 +92,37 @@ class StppService
         ], $data));
     }
 
+    /**
+     * Ubah data STPP selagi masih ACTIVE (belum ditarik).
+     *
+     * @param  array{item_id?:?int, description_raw?:?string, qty?:float, unit_id?:?int, holder_id?:?int, holder_name_raw?:?string, placement_department_id?:?int, placement_raw?:?string, out_note?:?string}  $data
+     */
+    public function update(StppTransaction $stpp, array $data): StppTransaction
+    {
+        $this->assert($stpp, ['ACTIVE']);
+
+        $stpp->update([
+            'item_id' => $data['item_id'] ?? $stpp->item_id,
+            'description_raw' => $data['description_raw'] ?? $stpp->description_raw,
+            'qty' => $data['qty'] ?? $stpp->qty,
+            'unit_id' => $data['unit_id'] ?? $stpp->unit_id,
+            'holder_id' => $data['holder_id'] ?? $stpp->holder_id,
+            'holder_name_raw' => $data['holder_name_raw'] ?? $stpp->holder_name_raw,
+            'placement_department_id' => $data['placement_department_id'] ?? $stpp->placement_department_id,
+            'placement_raw' => $data['placement_raw'] ?? $stpp->placement_raw,
+            'out_note' => $data['out_note'] ?? $stpp->out_note,
+        ]);
+
+        return $stpp->refresh();
+    }
+
+    /** Hapus baris STPP — hanya selagi ACTIVE (belum ditarik/ada riwayat). */
+    public function delete(StppTransaction $stpp): void
+    {
+        $this->assert($stpp, ['ACTIVE']);
+        $stpp->delete();
+    }
+
     /** @param list<string> $allowed */
     private function assert(StppTransaction $stpp, array $allowed): void
     {

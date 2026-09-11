@@ -24,10 +24,27 @@ class ItemResource extends JsonResource
                 'name' => $this->category->name,
                 'path' => $this->category->path,
             ] : null),
+            // DATA.xlsx DATABASE UTAMA: Kategori Induk/Anak 1/Anak 2/Anak 3 — dipecah dari path.
+            'category_breakdown' => $this->whenLoaded('category', function () {
+                $segments = array_pad(explode(' > ', (string) $this->category?->path), 4, null);
+
+                return [
+                    'induk' => $segments[0], 'anak_1' => $segments[1],
+                    'anak_2' => $segments[2], 'anak_3' => $segments[3],
+                ];
+            }),
             'unit' => $this->whenLoaded('unit', fn () => $this->unit?->only('id', 'code', 'name')),
             'default_warehouse_id' => $this->default_warehouse_id,
+            'default_warehouse' => $this->whenLoaded('defaultWarehouse', fn () => $this->defaultWarehouse?->only('id', 'code', 'name')),
             'default_location_id' => $this->default_location_id,
+            'default_location' => $this->whenLoaded('defaultLocation', fn () => $this->defaultLocation?->only('id', 'code')),
+            'blueprint_img_path' => $this->blueprint_img_path,
+            'blueprint_pdf_path' => $this->blueprint_pdf_path,
             'blueprint_3d_ref' => $this->blueprint_3d_ref,
+            // Excel lama: kolom "Nama Alias" bukan alias sungguhan (selalu "Tidak" — lihat
+            // docs/excel-data-mapping.md §DATA.xlsx col 8). Alias asli ada di item_aliases.
+            'alias_name' => 'Tidak',
+            'aliases' => $this->whenLoaded('aliases', fn () => $this->aliases->pluck('alias_description')),
             'safety_stock' => $this->whenLoaded('effectiveSafetyStock', fn () => $this->effectiveSafetyStock?->safety_stock),
             'analysis' => $this->whenLoaded('snapshot', fn () => $this->snapshot ? [
                 'actual' => $this->snapshot->actual,

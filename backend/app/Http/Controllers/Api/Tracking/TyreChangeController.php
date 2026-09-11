@@ -48,6 +48,27 @@ class TyreChangeController extends Controller
         return response()->json(['data' => $this->row($this->service->record($request->user(), $data))], 201);
     }
 
+    public function update(Request $request, TyreChange $tyreChange): JsonResponse
+    {
+        $data = $request->validate([
+            'position' => ['nullable', 'string', 'max:20'],
+            'new_tyre_desc' => ['nullable', 'string', 'max:300'],
+            'new_serial_raw' => ['nullable', 'string', 'max:80'],
+            'old_tyre_desc' => ['nullable', 'string', 'max:300'],
+            'old_serial_raw' => ['nullable', 'string', 'max:80'],
+            'reason' => ['nullable', 'string', 'max:255'],
+        ]);
+
+        return response()->json(['data' => $this->row($this->service->update($tyreChange, $data))]);
+    }
+
+    public function destroy(TyreChange $tyreChange): JsonResponse
+    {
+        $this->service->delete($tyreChange);
+
+        return response()->json(['message' => 'Data ban dihapus.']);
+    }
+
     public function close(Request $request, TyreChange $tyreChange): JsonResponse
     {
         $data = $request->validate([

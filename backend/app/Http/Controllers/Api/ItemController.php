@@ -18,7 +18,10 @@ class ItemController extends Controller
         $perPage = min((int) $request->integer('per_page', 25), 100);
 
         $query = Item::query()
-            ->with(['category:id,name,path', 'unit:id,code,name', 'snapshot', 'effectiveSafetyStock'])
+            ->with([
+                'category:id,name,path', 'unit:id,code,name', 'snapshot', 'effectiveSafetyStock',
+                'defaultWarehouse:id,code,name', 'defaultLocation:id,code',
+            ])
             ->leftJoin('categories', 'categories.id', '=', 'items.category_id')
             ->leftJoin('inventory_snapshots as snap', function ($join) {
                 $join->on('snap.item_id', '=', 'items.id')->whereNull('snap.warehouse_id');
@@ -104,22 +107,25 @@ class ItemController extends Controller
     {
         return new ItemResource($item->load([
             'category', 'unit', 'snapshot', 'effectiveSafetyStock',
-            'safetyStocks', 'aliases', 'inventory',
+            'safetyStocks', 'aliases', 'inventory', 'defaultWarehouse', 'defaultLocation',
         ]));
     }
 
     public function store(StoreItemRequest $request): ItemResource
     {
+        // refresh() (bukan fresh()) supaya default kolom DB ikut terbawa TANPA kehilangan
+        // wasRecentlyCreated — itu yang membuat response status otomatis 201.
         $item = Item::create($request->validated());
+        $item->refresh();
 
-        return new ItemResource($item->load('category', 'unit'));
+        return new ItemResource($item->load('category', 'unit', 'defaultWarehouse', 'defaultLocation'));
     }
 
     public function update(UpdateItemRequest $request, Item $item): ItemResource
     {
         $item->update($request->validated());
 
-        return new ItemResource($item->load('category', 'unit', 'snapshot'));
+        return new ItemResource($item->load('category', 'unit', 'snapshot', 'defaultWarehouse', 'defaultLocation'));
     }
 
     public function destroy(Item $item): JsonResponse

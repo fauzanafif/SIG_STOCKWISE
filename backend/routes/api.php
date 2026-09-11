@@ -6,6 +6,7 @@ use App\Http\Controllers\Api\ExportController;
 use App\Http\Controllers\Api\HealthController;
 use App\Http\Controllers\Api\InventoryController;
 use App\Http\Controllers\Api\ItemController;
+use App\Http\Controllers\Api\LegacyExportController;
 use App\Http\Controllers\Api\MasterDataController;
 use App\Http\Controllers\Api\MaterialRequestController;
 use App\Http\Controllers\Api\NpbgController;
@@ -131,6 +132,8 @@ Route::middleware('auth:sanctum')->group(function (): void {
         ->middleware('permission:npbg.create')->name('api.npbg.from-request');
     Route::post('/npbg', [NpbgController::class, 'storeManual'])
         ->middleware('permission:npbg.create')->name('api.npbg.store');
+    Route::match(['put', 'patch'], '/npbg/{npbg}', [NpbgController::class, 'update'])
+        ->middleware('permission:npbg.update')->name('api.npbg.update');
     Route::post('/npbg/{npbg}/prepare', [NpbgController::class, 'prepare'])
         ->middleware('permission:npbg.prepare')->name('api.npbg.prepare');
     Route::post('/npbg/{npbg}/ready', [NpbgController::class, 'ready'])
@@ -180,6 +183,10 @@ Route::middleware('auth:sanctum')->group(function (): void {
         ->middleware('permission:ppb.create|request.set_need_purchase')->name('api.ppb.from-request');
     Route::post('/ppb', [PpbController::class, 'store'])
         ->middleware('permission:ppb.create')->name('api.ppb.store');
+    Route::match(['put', 'patch'], '/ppb/{ppb}', [PpbController::class, 'update'])
+        ->middleware('permission:ppb.update')->name('api.ppb.update');
+    Route::delete('/ppb/{ppb}', [PpbController::class, 'destroy'])
+        ->middleware('permission:ppb.update')->name('api.ppb.destroy');
     Route::post('/ppb/{ppb}/submit', [PpbController::class, 'submit'])
         ->middleware('permission:ppb.submit|ppb.create')->name('api.ppb.submit');
     Route::post('/ppb/{ppb}/review', [PpbController::class, 'review'])
@@ -230,39 +237,57 @@ Route::middleware('auth:sanctum')->group(function (): void {
     Route::get('/lend', [Tracking\LendController::class, 'index'])->middleware('permission:lend.view')->name('api.lend.index');
     Route::get('/lend/{lend}', [Tracking\LendController::class, 'show'])->middleware('permission:lend.view')->name('api.lend.show');
     Route::post('/lend', [Tracking\LendController::class, 'store'])->middleware('permission:lend.create')->name('api.lend.store');
+    Route::match(['put', 'patch'], '/lend/{lend}', [Tracking\LendController::class, 'update'])->middleware('permission:lend.update')->name('api.lend.update');
+    Route::delete('/lend/{lend}', [Tracking\LendController::class, 'destroy'])->middleware('permission:lend.update')->name('api.lend.destroy');
     Route::post('/lend/{lend}/return', [Tracking\LendController::class, 'return'])->middleware('permission:lend.return')->name('api.lend.return');
 
     Route::get('/borrow', [Tracking\BorrowController::class, 'index'])->middleware('permission:borrow.view')->name('api.borrow.index');
     Route::get('/borrow/{borrow}', [Tracking\BorrowController::class, 'show'])->middleware('permission:borrow.view')->name('api.borrow.show');
     Route::post('/borrow', [Tracking\BorrowController::class, 'store'])->middleware('permission:borrow.create')->name('api.borrow.store');
+    Route::match(['put', 'patch'], '/borrow/{borrow}', [Tracking\BorrowController::class, 'update'])->middleware('permission:borrow.update')->name('api.borrow.update');
+    Route::delete('/borrow/{borrow}', [Tracking\BorrowController::class, 'destroy'])->middleware('permission:borrow.update')->name('api.borrow.destroy');
     Route::post('/borrow/{borrow}/return', [Tracking\BorrowController::class, 'return'])->middleware('permission:borrow.return')->name('api.borrow.return');
 
     Route::get('/stpp', [Tracking\StppController::class, 'index'])->middleware('permission:stpp.view')->name('api.stpp.index');
     Route::get('/stpp/{stpp}', [Tracking\StppController::class, 'show'])->middleware('permission:stpp.view')->name('api.stpp.show');
     Route::post('/stpp', [Tracking\StppController::class, 'store'])->middleware('permission:stpp.create')->name('api.stpp.store');
+    Route::match(['put', 'patch'], '/stpp/{stpp}', [Tracking\StppController::class, 'update'])->middleware('permission:stpp.update')->name('api.stpp.update');
+    Route::delete('/stpp/{stpp}', [Tracking\StppController::class, 'destroy'])->middleware('permission:stpp.update')->name('api.stpp.destroy');
     Route::post('/stpp/{stpp}/withdraw', [Tracking\StppController::class, 'withdraw'])->middleware('permission:stpp.return')->name('api.stpp.withdraw');
     Route::post('/stpp/{stpp}/reissue', [Tracking\StppController::class, 'reissue'])->middleware('permission:stpp.create')->name('api.stpp.reissue');
 
     Route::get('/tyre-changes', [Tracking\TyreChangeController::class, 'index'])->middleware('permission:tyre.view')->name('api.tyre.index');
     Route::get('/tyre-changes/{tyreChange}', [Tracking\TyreChangeController::class, 'show'])->middleware('permission:tyre.view')->name('api.tyre.show');
     Route::post('/tyre-changes', [Tracking\TyreChangeController::class, 'store'])->middleware('permission:tyre.create')->name('api.tyre.store');
+    Route::match(['put', 'patch'], '/tyre-changes/{tyreChange}', [Tracking\TyreChangeController::class, 'update'])->middleware('permission:tyre.update')->name('api.tyre.update');
+    Route::delete('/tyre-changes/{tyreChange}', [Tracking\TyreChangeController::class, 'destroy'])->middleware('permission:tyre.update')->name('api.tyre.destroy');
     Route::post('/tyre-changes/{tyreChange}/close', [Tracking\TyreChangeController::class, 'close'])->middleware('permission:tyre.close')->name('api.tyre.close');
 
     Route::get('/maintenance-orders', [Tracking\MaintenanceController::class, 'index'])->middleware('permission:maintenance.view')->name('api.maintenance.index');
     Route::get('/maintenance-orders/{maintenanceOrder}', [Tracking\MaintenanceController::class, 'show'])->middleware('permission:maintenance.view')->name('api.maintenance.show');
     Route::post('/maintenance-orders', [Tracking\MaintenanceController::class, 'store'])->middleware('permission:maintenance.create')->name('api.maintenance.store');
+    Route::match(['put', 'patch'], '/maintenance-orders/{maintenanceOrder}', [Tracking\MaintenanceController::class, 'update'])->middleware('permission:maintenance.update')->name('api.maintenance.update');
+    Route::delete('/maintenance-orders/{maintenanceOrder}', [Tracking\MaintenanceController::class, 'destroy'])->middleware('permission:maintenance.update')->name('api.maintenance.destroy');
     Route::post('/maintenance-orders/{maintenanceOrder}/subs', [Tracking\MaintenanceController::class, 'addSub'])->middleware('permission:maintenance.update')->name('api.maintenance.subs');
+    Route::match(['put', 'patch'], '/maintenance-subs/{sub}', [Tracking\MaintenanceController::class, 'updateSub'])->middleware('permission:maintenance.update')->name('api.maintenance.subs.update');
+    Route::delete('/maintenance-subs/{sub}', [Tracking\MaintenanceController::class, 'destroySub'])->middleware('permission:maintenance.update')->name('api.maintenance.subs.destroy');
     Route::post('/maintenance-subs/{sub}/complete', [Tracking\MaintenanceController::class, 'completeSub'])->middleware('permission:maintenance.complete')->name('api.maintenance.subs.complete');
 
     Route::get('/manufacturing-orders', [Tracking\ManufacturingController::class, 'index'])->middleware('permission:manufacturing.view')->name('api.manufacturing.index');
     Route::get('/manufacturing-orders/{manufacturingOrder}', [Tracking\ManufacturingController::class, 'show'])->middleware('permission:manufacturing.view')->name('api.manufacturing.show');
     Route::post('/manufacturing-orders', [Tracking\ManufacturingController::class, 'store'])->middleware('permission:manufacturing.create')->name('api.manufacturing.store');
+    Route::match(['put', 'patch'], '/manufacturing-orders/{manufacturingOrder}', [Tracking\ManufacturingController::class, 'update'])->middleware('permission:manufacturing.update')->name('api.manufacturing.update');
+    Route::delete('/manufacturing-orders/{manufacturingOrder}', [Tracking\ManufacturingController::class, 'destroy'])->middleware('permission:manufacturing.update')->name('api.manufacturing.destroy');
     Route::post('/manufacturing-orders/{manufacturingOrder}/subs', [Tracking\ManufacturingController::class, 'addSub'])->middleware('permission:manufacturing.update')->name('api.manufacturing.subs');
+    Route::match(['put', 'patch'], '/manufacturing-subs/{sub}', [Tracking\ManufacturingController::class, 'updateSub'])->middleware('permission:manufacturing.update')->name('api.manufacturing.subs.update');
+    Route::delete('/manufacturing-subs/{sub}', [Tracking\ManufacturingController::class, 'destroySub'])->middleware('permission:manufacturing.update')->name('api.manufacturing.subs.destroy');
     Route::post('/manufacturing-subs/{sub}/complete', [Tracking\ManufacturingController::class, 'completeSub'])->middleware('permission:manufacturing.complete')->name('api.manufacturing.subs.complete');
 
     Route::get('/used-returns', [Tracking\UsedReturnController::class, 'index'])->middleware('permission:used_return.view')->name('api.used-returns.index');
     Route::get('/used-returns/{usedReturn}', [Tracking\UsedReturnController::class, 'show'])->middleware('permission:used_return.view')->name('api.used-returns.show');
     Route::post('/used-returns', [Tracking\UsedReturnController::class, 'store'])->middleware('permission:used_return.create')->name('api.used-returns.store');
+    Route::match(['put', 'patch'], '/used-returns/{usedReturn}', [Tracking\UsedReturnController::class, 'update'])->middleware('permission:used_return.update')->name('api.used-returns.update');
+    Route::delete('/used-returns/{usedReturn}', [Tracking\UsedReturnController::class, 'destroy'])->middleware('permission:used_return.update')->name('api.used-returns.destroy');
     Route::post('/used-returns/{usedReturn}/close', [Tracking\UsedReturnController::class, 'close'])->middleware('permission:used_return.close')->name('api.used-returns.close');
 
     // PHASE 9 — Dashboard (ringkasan per-peran).
@@ -270,4 +295,8 @@ Route::middleware('auth:sanctum')->group(function (): void {
 
     // PHASE 10 — Laporan & export (xlsx / csv / pdf-print).
     Route::get('/export/{dataset}', ExportController::class)->name('api.export');
+
+    // Replika Excel lama (docs/excel-data-mapping.md) — migrasi penuh ke web.
+    Route::get('/legacy-export', [LegacyExportController::class, 'index'])->name('api.legacy-export.index');
+    Route::get('/legacy-export/{key}', LegacyExportController::class)->name('api.legacy-export');
 });

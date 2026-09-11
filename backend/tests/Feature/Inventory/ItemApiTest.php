@@ -5,6 +5,8 @@ namespace Tests\Feature\Inventory;
 use App\Models\Category;
 use App\Models\Item;
 use App\Models\Unit;
+use App\Models\Warehouse;
+use App\Models\WarehouseLocation;
 use Database\Seeders\RbacSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
@@ -87,6 +89,8 @@ class ItemApiTest extends TestCase
         $create = $this->postJson('/api/items', $payload)->assertCreated();
         $id = $create->json('data.id');
         $this->assertDatabaseHas('items', ['code' => 'NEW.001']);
+        // kolom dengan default di DB (item_type, is_active) harus ikut kebawa di response create.
+        $create->assertJsonPath('data.item_type', 'CONSUMABLE')->assertJsonPath('data.is_active', true);
 
         $this->putJson("/api/items/{$id}", ['description' => 'BARANG DIUBAH'])
             ->assertOk()->assertJsonPath('data.description', 'BARANG DIUBAH');
@@ -111,5 +115,50 @@ class ItemApiTest extends TestCase
 
         $this->getJson("/api/items/{$item->id}")->assertOk();
         $this->putJson("/api/items/{$item->id}", ['description' => 'X'])->assertForbidden();
+    }
+
+    /** Master Barang harus lengkap sesuai kolom DATA.xlsx DATABASE UTAMA. */
+    public function test_show_exposes_full_data_master_column_set(): void
+    {
+        $category = Category::create(['name' => 'ASSET', 'level' => 2, 'path' => 'Assets > ASSET', 'is_active' => true]);
+        $warehouse = Warehouse::factory()->create(['code' => 'GUDANG 1']);
+        $location = WarehouseLocation::create(['warehouse_id' => $warehouse->id, 'code' => 'B.7.1', 'is_active' => true]);
+        $item = Item::factory()->create([
+            'category_id' => $category->id, 'needs_blueprint' => true,
+            'default_warehouse_id' => $warehouse->id, 'default_location_id' => $location->id,
+            'blueprint_3d_ref' => 'A.17.31',
+        ]);
+
+        $this->actingAsRole('admin_gudang');
+        $res = $this->getJson("/api/items/{$item->id}")->assertOk();
+
+        $res->assertJsonPath('data.category_breakdown.induk', 'Assets')
+            ->assertJsonPath('data.category_breakdown.anak_1', 'ASSET')
+            ->assertJsonPath('data.category_breakdown.anak_2', null)
+            ->assertJsonPath('data.needs_blueprint', true)
+            ->assertJsonPath('data.default_warehouse.code', 'GUDANG 1')
+            ->assertJsonPath('data.default_location.code', 'B.7.1')
+            ->assertJsonPath('data.blueprint_3d_ref', 'A.17.31')
+            ->assertJsonPath('data.alias_name', 'Tidak')
+            ->assertJsonPath('data.aliases', []);
+    }
+
+    public function test_update_accepts_blueprint_and_location_fields(): void
+    {
+        $item = Item::factory()->create();
+        $warehouse = Warehouse::factory()->create();
+        $location = WarehouseLocation::create(['warehouse_id' => $warehouse->id, 'code' => 'A.1.1', 'is_active' => true]);
+        $this->actingAsRole('admin_gudang');
+
+        $this->putJson("/api/items/{$item->id}", [
+            'default_warehouse_id' => $warehouse->id,
+            'default_location_id' => $location->id,
+            'blueprint_3d_ref' => 'C.1.2',
+            'blueprint_img_path' => 'blueprints/x.png',
+        ])->assertOk()
+            ->assertJsonPath('data.default_warehouse.id', $warehouse->id)
+            ->assertJsonPath('data.blueprint_3d_ref', 'C.1.2');
+
+        $this->assertDatabaseHas('items', ['id' => $item->id, 'blueprint_img_path' => 'blueprints/x.png']);
     }
 }

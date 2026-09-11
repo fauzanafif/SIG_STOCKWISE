@@ -21,6 +21,11 @@ class UsedReturnItem extends Model
         return $this->belongsTo(Item::class);
     }
 
+    public function unit()
+    {
+        return $this->belongsTo(Unit::class);
+    }
+
     public function componentType()
     {
         return $this->belongsTo(UsedReturnComponentType::class, 'component_type_id');

@@ -56,6 +56,45 @@ class ManufacturingController extends Controller
         return response()->json(['data' => $this->row($this->service->createOrder($request->user(), $data)->loadCount('subs'))], 201);
     }
 
+    public function update(Request $request, ManufacturingOrder $manufacturingOrder): JsonResponse
+    {
+        $data = $request->validate([
+            'date' => ['sometimes', 'date'],
+            'product_name' => ['nullable', 'string', 'max:200'],
+            'vendor_id' => ['nullable', 'integer', 'exists:vendors,id'],
+        ]);
+        $this->service->updateOrder($manufacturingOrder, $data);
+
+        return $this->show($manufacturingOrder->fresh());
+    }
+
+    public function destroy(ManufacturingOrder $manufacturingOrder): JsonResponse
+    {
+        $this->service->deleteOrder($manufacturingOrder);
+
+        return response()->json(['message' => 'Order dihapus.']);
+    }
+
+    public function updateSub(Request $request, ManufacturingOrderSub $sub): JsonResponse
+    {
+        $data = $request->validate([
+            'process' => ['nullable', 'string', 'max:60'],
+            'serial_no_raw' => ['nullable', 'string', 'max:80'],
+            'note_start' => ['nullable', 'string', 'max:2000'],
+        ]);
+        $this->service->updateSub($sub, $data);
+
+        return $this->show($sub->order()->first());
+    }
+
+    public function destroySub(ManufacturingOrderSub $sub): JsonResponse
+    {
+        $order = $sub->order;
+        $this->service->deleteSub($sub);
+
+        return $this->show($order->fresh());
+    }
+
     public function addSub(Request $request, ManufacturingOrder $manufacturingOrder): JsonResponse
     {
         $data = $request->validate([

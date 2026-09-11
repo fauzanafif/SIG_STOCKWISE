@@ -77,6 +77,27 @@ class PpbController extends Controller
         return response()->json(['data' => $this->row($ppb->loadCount('items'))], 201);
     }
 
+    public function update(Request $request, Ppb $ppb): JsonResponse
+    {
+        $data = $request->validate([
+            'notes' => ['sometimes', 'nullable', 'string'],
+            'items' => ['sometimes', 'array', 'min:1'],
+            'items.*.item_id' => ['nullable', 'integer', 'exists:items,id'],
+            'items.*.description_raw' => ['required_without:items.*.item_id', 'nullable', 'string', 'max:400'],
+            'items.*.qty' => ['required_with:items', 'numeric', 'gt:0'],
+            'items.*.unit_id' => ['nullable', 'integer', 'exists:units,id'],
+        ]);
+
+        return $this->show($this->service->update($ppb, $data));
+    }
+
+    public function destroy(Ppb $ppb): JsonResponse
+    {
+        $this->service->delete($ppb);
+
+        return response()->json(['message' => 'PPB dihapus.']);
+    }
+
     public function submit(Ppb $ppb): JsonResponse
     {
         return $this->show($this->service->submit($ppb));

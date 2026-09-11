@@ -122,6 +122,55 @@ class NpbgService
         });
     }
 
+    /**
+     * Ubah NPBG selagi belum siap diambil — belum ada stok yang bergerak (ATURAN MUTLAK 7).
+     * Header (klasifikasi, pelanggan/proyek/aset, catatan) selalu bisa diubah; baris item hanya
+     * boleh diganti untuk NPBG manual (bukan hasil request — qty di sana terikat reservasi).
+     *
+     * @param  array{classification?:string, customer_name?:?string, project_name?:?string, asset_ref?:?string, requester_name?:?string, notes?:?string, items?:array<int,array{item_id?:?int, description_raw?:string, qty:float, unit_id?:?int, note?:?string}>}  $data
+     */
+    public function update(Npbg $npbg, array $data): Npbg
+    {
+        $this->assert($npbg, ['DRAFT', 'PREPARING']);
+
+        return DB::transaction(function () use ($npbg, $data) {
+            $npbg->fill(array_filter([
+                'classification' => $data['classification'] ?? null,
+                'customer_name' => $data['customer_name'] ?? null,
+                'project_name' => $data['project_name'] ?? null,
+                'asset_ref' => $data['asset_ref'] ?? null,
+                'requester_name' => $data['requester_name'] ?? null,
+                'notes' => $data['notes'] ?? null,
+            ], fn ($v) => $v !== null))->save();
+
+            if (isset($data['items'])) {
+                if ($npbg->material_request_id !== null) {
+                    throw ValidationException::withMessages([
+                        'items' => ['Baris NPBG dari request mengikuti reservasi — hanya bisa dibatalkan, bukan diubah qty-nya.'],
+                    ]);
+                }
+
+                $warehouseId = $npbg->items()->value('warehouse_id') ?? $npbg->warehouse_id;
+                $npbg->items()->delete();
+                $no = 1;
+                foreach ($data['items'] as $row) {
+                    $item = ! empty($row['item_id']) ? Item::find($row['item_id']) : null;
+                    $npbg->items()->create([
+                        'item_id' => $item?->id,
+                        'description_raw' => $row['description_raw'] ?? $item?->description ?? '-',
+                        'item_no' => $no++,
+                        'qty' => $row['qty'],
+                        'unit_id' => $row['unit_id'] ?? $item?->unit_id,
+                        'warehouse_id' => $warehouseId,
+                        'note' => $row['note'] ?? null,
+                    ]);
+                }
+            }
+
+            return $npbg->fresh('items');
+        });
+    }
+
     public function prepare(Npbg $npbg): Npbg
     {
         $this->assert($npbg, ['DRAFT', 'PREPARING']);

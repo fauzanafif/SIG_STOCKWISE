@@ -20,4 +20,14 @@ class ManufacturingOrderSub extends Model
     {
         return $this->belongsTo(ManufacturingOrder::class, 'manufacturing_order_id');
     }
+
+    public function npbg()
+    {
+        return $this->belongsTo(Npbg::class);
+    }
+
+    public function ri()
+    {
+        return $this->belongsTo(Receiving::class, 'ri_id');
+    }
 }

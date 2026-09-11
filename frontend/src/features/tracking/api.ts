@@ -36,6 +36,24 @@ export function useTrackingAction<T>(base: string, id: number) {
   })
 }
 
+/** Ubah baris — hanya jalan selagi statusnya masih "open" (dicek di backend). */
+export function useTrackingUpdate<T>(base: string, id: number) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (body: unknown) => (await api.put<{ data: T }>(`/api/${base}/${id}`, body)).data.data,
+    onSuccess: () => qc.invalidateQueries({ queryKey: [base] }),
+  })
+}
+
+/** Hapus baris — hanya jalan selagi statusnya masih "open" (dicek di backend). */
+export function useTrackingDelete(base: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (id: number) => (await api.delete(`/api/${base}/${id}`)).data,
+    onSuccess: () => qc.invalidateQueries({ queryKey: [base] }),
+  })
+}
+
 // ---- master lookups used by tracking forms ----
 
 export interface AssetOption {

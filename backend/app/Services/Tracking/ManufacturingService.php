@@ -93,6 +93,60 @@ class ManufacturingService
         });
     }
 
+    /** @param array{product_name?:?string, date?:?string, vendor_id?:?int} $data */
+    public function updateOrder(ManufacturingOrder $order, array $data): ManufacturingOrder
+    {
+        $this->assertOrder($order, ['REQUESTED', 'ON_GOING']);
+        if ($order->kind === 'JASA' && array_key_exists('vendor_id', $data) && empty($data['vendor_id'])) {
+            throw ValidationException::withMessages(['vendor_id' => ['Vendor wajib untuk order JASA.']]);
+        }
+        $order->update([
+            'product_name' => $data['product_name'] ?? $order->product_name,
+            'date' => isset($data['date']) ? Carbon::parse($data['date'])->toDateString() : $order->date,
+            'vendor_id' => $data['vendor_id'] ?? $order->vendor_id,
+        ]);
+
+        return $order->refresh();
+    }
+
+    /** Hapus order — hanya selagi REQUESTED (belum ada tahapan). */
+    public function deleteOrder(ManufacturingOrder $order): void
+    {
+        $this->assertOrder($order, ['REQUESTED']);
+        abort_if($order->subs()->exists(), 422, 'Order sudah punya tahapan — hapus tahapannya dulu.');
+        $order->delete();
+    }
+
+    /** @param array{process?:?string, serial_no_raw?:?string, note_start?:?string} $data */
+    public function updateSub(ManufacturingOrderSub $sub, array $data): ManufacturingOrderSub
+    {
+        if ($sub->status !== 'ON_GOING') {
+            throw ValidationException::withMessages(['status' => ['Tahapan yang sudah COMPLETED tidak bisa diubah.']]);
+        }
+        $sub->update([
+            'process' => $data['process'] ?? $sub->process,
+            'serial_no_raw' => $data['serial_no_raw'] ?? $sub->serial_no_raw,
+            'note_start' => $data['note_start'] ?? $sub->note_start,
+        ]);
+
+        return $sub->refresh();
+    }
+
+    /** Hapus tahapan — hanya selagi ON_GOING (belum COMPLETED). */
+    public function deleteSub(ManufacturingOrderSub $sub): void
+    {
+        if ($sub->status !== 'ON_GOING') {
+            throw ValidationException::withMessages(['status' => ['Tahapan yang sudah COMPLETED tidak bisa dihapus.']]);
+        }
+        DB::transaction(function () use ($sub) {
+            $order = $sub->order;
+            $sub->delete();
+            if ($order->subs()->count() === 0) {
+                $order->update(['status' => 'REQUESTED']);
+            }
+        });
+    }
+
     /** @param list<string> $allowed */
     private function assertOrder(ManufacturingOrder $order, array $allowed): void
     {

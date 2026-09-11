@@ -73,6 +73,52 @@ class LendService
         return $lend->refresh();
     }
 
+    /**
+     * Ubah data Lend selagi belum ada pengembalian sama sekali — untuk memperbaiki salah entri.
+     *
+     * @param  array{item_id?:?int, description_raw?:?string, qty?:float, unit_id?:?int, purpose?:string, borrower_name?:?string, customer_id?:?int, project_id?:?int, est_days?:?int, out_date?:?string, condition_out?:?string}  $data
+     */
+    public function update(LendTransaction $lend, array $data): LendTransaction
+    {
+        $this->assertEditable($lend);
+
+        $outDate = isset($data['out_date']) ? Carbon::parse($data['out_date']) : $lend->out_date;
+        $est = array_key_exists('est_days', $data) ? $data['est_days'] : $lend->est_days;
+
+        $lend->update([
+            'item_id' => $data['item_id'] ?? $lend->item_id,
+            'description_raw' => $data['description_raw'] ?? $lend->description_raw,
+            'qty' => $data['qty'] ?? $lend->qty,
+            'unit_id' => $data['unit_id'] ?? $lend->unit_id,
+            'purpose' => $data['purpose'] ?? $lend->purpose,
+            'borrower_name' => $data['borrower_name'] ?? $lend->borrower_name,
+            'customer_id' => $data['customer_id'] ?? $lend->customer_id,
+            'project_id' => $data['project_id'] ?? $lend->project_id,
+            'est_days' => $est,
+            'out_date' => $outDate->toDateString(),
+            'due_date' => $est ? $outDate->copy()->addDays($est)->toDateString() : null,
+            'condition_out' => $data['condition_out'] ?? $lend->condition_out,
+        ]);
+
+        return $lend->refresh();
+    }
+
+    /** Hapus baris Lend — hanya selagi belum ada pengembalian yang tercatat. */
+    public function delete(LendTransaction $lend): void
+    {
+        $this->assertEditable($lend);
+        $lend->delete();
+    }
+
+    private function assertEditable(LendTransaction $lend): void
+    {
+        if ($lend->status !== 'ON_LOAN' || (float) $lend->qty_returned > 0) {
+            throw ValidationException::withMessages([
+                'status' => ['Lend yang sudah ada pengembalian tidak bisa diubah/dihapus — hanya bisa dilihat.'],
+            ]);
+        }
+    }
+
     /** Job harian menandai pinjaman lewat tempo. */
     public function markOverdue(): int
     {

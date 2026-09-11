@@ -31,9 +31,32 @@ export interface Item {
   lead_time_days: number | null
   is_active: boolean
   category: { id: number; name: string; path: string } | null
+  category_breakdown?: { induk: string | null; anak_1: string | null; anak_2: string | null; anak_3: string | null } | null
   unit: { id: number; code: string; name: string } | null
+  default_warehouse_id?: number | null
+  default_warehouse?: { id: number; code: string; name: string } | null
+  default_location_id?: number | null
+  default_location?: { id: number; code: string } | null
+  blueprint_img_path?: string | null
+  blueprint_pdf_path?: string | null
+  blueprint_3d_ref?: string | null
+  alias_name?: string
+  aliases?: string[]
   safety_stock?: number | null
   analysis?: ItemAnalysis | null
+}
+
+export interface NewItemPayload {
+  code: string
+  description: string
+  category_id?: number | null
+  unit_id?: number | null
+  needs_blueprint?: boolean
+  lead_time_days?: number | null
+  default_warehouse_id?: number | null
+  default_location_id?: number | null
+  blueprint_3d_ref?: string | null
+  is_active?: boolean
 }
 
 export interface AnalysisRow {
@@ -67,4 +90,12 @@ export interface Category {
   name: string
   level: number
   path: string
+}
+
+export interface CategoryNode {
+  id: number
+  name: string
+  level: number
+  path: string
+  children: CategoryNode[]
 }

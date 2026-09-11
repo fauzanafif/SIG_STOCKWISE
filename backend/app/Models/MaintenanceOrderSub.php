@@ -25,4 +25,14 @@ class MaintenanceOrderSub extends Model
     {
         return $this->belongsTo(Workshop::class);
     }
+
+    public function npbg()
+    {
+        return $this->belongsTo(Npbg::class);
+    }
+
+    public function ri()
+    {
+        return $this->belongsTo(Receiving::class, 'ri_id');
+    }
 }

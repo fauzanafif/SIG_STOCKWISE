@@ -128,6 +128,45 @@ class PickupFlowTest extends TestCase
         $this->assertSame('RESERVED', $req->fresh()->status);
     }
 
+    public function test_manual_npbg_can_be_edited_while_preparing_but_not_after_pickup(): void
+    {
+        $item = Item::factory()->create();
+        Inventory::create([
+            'item_id' => $item->id, 'warehouse_id' => $this->warehouse->id,
+            'actual_qty' => 40, 'reserved_qty' => 0, 'stock_known' => true,
+        ]);
+
+        $this->actingAsRole('admin_gudang', ['site_id' => $this->site->id]);
+        $npbg = $this->postJson('/api/npbg', [
+            'warehouse_id' => $this->warehouse->id,
+            'classification' => 'UMUM',
+            'items' => [['item_id' => $item->id, 'qty' => 10]],
+        ])->assertCreated()->json('data');
+
+        $this->putJson("/api/npbg/{$npbg['id']}", [
+            'notes' => 'diedit admin', 'items' => [['item_id' => $item->id, 'qty' => 7]],
+        ])->assertOk()
+            ->assertJsonPath('data.notes', 'diedit admin')
+            ->assertJsonPath('data.items.0.qty', 7);
+
+        $this->postJson("/api/npbg/{$npbg['id']}/ready");
+        $this->postJson("/api/npbg/{$npbg['id']}/pickup", ['picked_up_by' => 'Wahyu'])->assertOk();
+
+        $this->putJson("/api/npbg/{$npbg['id']}", ['notes' => 'coba edit lagi'])->assertStatus(422);
+    }
+
+    public function test_request_linked_npbg_items_cannot_be_edited(): void
+    {
+        [$req] = $this->reservedRequest();
+        $this->actingAsRole('admin_gudang', ['site_id' => $this->site->id]);
+        $npbg = $this->postJson('/api/npbg/from-request', ['material_request_id' => $req->id])->json('data');
+
+        $this->putJson("/api/npbg/{$npbg['id']}", ['items' => [['description_raw' => 'x', 'qty' => 1]]])
+            ->assertStatus(422);
+        $this->putJson("/api/npbg/{$npbg['id']}", ['notes' => 'catatan boleh'])
+            ->assertOk()->assertJsonPath('data.notes', 'catatan boleh');
+    }
+
     public function test_karyawan_cannot_pickup(): void
     {
         $npbg = Npbg::factory()->create(['status' => 'READY_TO_PICKUP', 'warehouse_id' => $this->warehouse->id, 'site_id' => $this->site->id]);

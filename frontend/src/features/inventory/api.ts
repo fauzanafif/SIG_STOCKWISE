@@ -1,10 +1,11 @@
-import { keepPreviousData, useQuery } from '@tanstack/react-query'
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
 import type {
   AnalysisRow,
   AnalysisRun,
-  Category,
+  CategoryNode,
   Item,
+  NewItemPayload,
   Paginated,
 } from '@/types/inventory'
 
@@ -80,12 +81,52 @@ export function useCategoryTree() {
   return useQuery({
     queryKey: ['categories', 'tree'],
     queryFn: async () => {
-      const { data } = await api.get<{ data: Array<Category & { children: unknown[] }> }>(
-        '/api/categories/tree',
-      )
+      const { data } = await api.get<{ data: CategoryNode[] }>('/api/categories/tree')
       return data.data
     },
     staleTime: 5 * 60_000,
+  })
+}
+
+export function useWarehouseLocations(warehouseId: number | null) {
+  return useQuery({
+    queryKey: ['warehouse-locations', warehouseId],
+    enabled: warehouseId != null,
+    queryFn: async () => {
+      const { data } = await api.get<{ data: Array<{ id: number; code: string; description: string | null }> }>(
+        '/api/warehouse-locations',
+        { params: { warehouse_id: warehouseId } },
+      )
+      return data.data
+    },
+    staleTime: 60_000,
+  })
+}
+
+export function useCreateItem() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (payload: NewItemPayload) => (await api.post<{ data: Item }>('/api/items', payload)).data.data,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['items'] }),
+  })
+}
+
+export function useUpdateItem(id: number) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (payload: Partial<NewItemPayload>) => (await api.put<{ data: Item }>(`/api/items/${id}`, payload)).data.data,
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['items'] })
+      qc.invalidateQueries({ queryKey: ['item', id] })
+    },
+  })
+}
+
+export function useDeleteItem() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (id: number) => (await api.delete(`/api/items/${id}`)).data,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['items'] }),
   })
 }
 

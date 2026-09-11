@@ -35,4 +35,14 @@ class Receiving extends Model
     {
         return $this->belongsTo(Warehouse::class);
     }
+
+    public function ppb()
+    {
+        return $this->belongsTo(Ppb::class);
+    }
+
+    public function checkedBy()
+    {
+        return $this->belongsTo(User::class, 'checked_by');
+    }
 }

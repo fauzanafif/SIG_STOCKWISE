@@ -88,6 +88,58 @@ class MaintenanceService
         });
     }
 
+    /** @param array{asset_id?:int, report_date?:?string, reported_by?:?int, problem_summary?:?string} $data */
+    public function updateOrder(MaintenanceOrder $order, array $data): MaintenanceOrder
+    {
+        $this->assertOrder($order, ['OPEN', 'ON_GOING']);
+        $order->update([
+            'asset_id' => $data['asset_id'] ?? $order->asset_id,
+            'report_date' => isset($data['report_date']) ? Carbon::parse($data['report_date'])->toDateString() : $order->report_date,
+            'reported_by' => $data['reported_by'] ?? $order->reported_by,
+            'problem_summary' => $data['problem_summary'] ?? $order->problem_summary,
+        ]);
+
+        return $order->refresh();
+    }
+
+    /** Hapus SPK — hanya selagi OPEN (belum ada sub-pekerjaan). */
+    public function deleteOrder(MaintenanceOrder $order): void
+    {
+        $this->assertOrder($order, ['OPEN']);
+        abort_if($order->subs()->exists(), 422, 'SPK sudah punya sub-pekerjaan — hapus sub-nya dulu.');
+        $order->delete();
+    }
+
+    /** @param array{workshop_id?:?int, workshop_raw?:?string, problem_detail?:?string} $data */
+    public function updateSub(MaintenanceOrderSub $sub, array $data): MaintenanceOrderSub
+    {
+        if ($sub->status !== 'ON_GOING') {
+            throw ValidationException::withMessages(['status' => ['Sub SPK yang sudah COMPLETED tidak bisa diubah.']]);
+        }
+        $sub->update([
+            'workshop_id' => $data['workshop_id'] ?? $sub->workshop_id,
+            'workshop_raw' => $data['workshop_raw'] ?? $sub->workshop_raw,
+            'problem_detail' => $data['problem_detail'] ?? $sub->problem_detail,
+        ]);
+
+        return $sub->refresh();
+    }
+
+    /** Hapus sub-pekerjaan — hanya selagi ON_GOING (belum COMPLETED). */
+    public function deleteSub(MaintenanceOrderSub $sub): void
+    {
+        if ($sub->status !== 'ON_GOING') {
+            throw ValidationException::withMessages(['status' => ['Sub SPK yang sudah COMPLETED tidak bisa dihapus.']]);
+        }
+        DB::transaction(function () use ($sub) {
+            $order = $sub->order;
+            $sub->delete();
+            if ($order->subs()->count() === 0) {
+                $order->update(['status' => 'OPEN']);
+            }
+        });
+    }
+
     private function rollUp(MaintenanceOrder $order): void
     {
         $order->load('subs');

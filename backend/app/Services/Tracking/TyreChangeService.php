@@ -59,4 +59,39 @@ class TyreChangeService
 
         return $change->refresh();
     }
+
+    /**
+     * Ubah data penggantian ban selagi PENDING_RI (ban lama belum masuk RI).
+     *
+     * @param  array{position?:?string, new_tyre_desc?:?string, new_serial_raw?:?string, old_tyre_desc?:?string, old_serial_raw?:?string, reason?:?string}  $data
+     */
+    public function update(TyreChange $change, array $data): TyreChange
+    {
+        $this->assertEditable($change);
+
+        $change->update([
+            'position' => $data['position'] ?? $change->position,
+            'new_tyre_desc' => $data['new_tyre_desc'] ?? $change->new_tyre_desc,
+            'new_serial_raw' => $data['new_serial_raw'] ?? $change->new_serial_raw,
+            'old_tyre_desc' => $data['old_tyre_desc'] ?? $change->old_tyre_desc,
+            'old_serial_raw' => $data['old_serial_raw'] ?? $change->old_serial_raw,
+            'reason' => $data['reason'] ?? $change->reason,
+        ]);
+
+        return $change->refresh();
+    }
+
+    /** Hapus baris — hanya selagi PENDING_RI (belum CLEAR). */
+    public function delete(TyreChange $change): void
+    {
+        $this->assertEditable($change);
+        $change->delete();
+    }
+
+    private function assertEditable(TyreChange $change): void
+    {
+        if ($change->status !== 'PENDING_RI') {
+            throw ValidationException::withMessages(['status' => ['Penggantian ban yang sudah CLEAR tidak bisa diubah/dihapus.']]);
+        }
+    }
 }

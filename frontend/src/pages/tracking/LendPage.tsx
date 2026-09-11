@@ -1,7 +1,7 @@
 import { useState } from 'react'
-import { Handshake } from 'lucide-react'
+import { Handshake, Pencil, Trash2 } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
-import { useTrackingAction, useTrackingCreate, type LendRow } from '@/features/tracking/api'
+import { useTrackingAction, useTrackingCreate, useTrackingDelete, useTrackingUpdate, type LendRow } from '@/features/tracking/api'
 import { useAuth } from '@/auth/AuthContext'
 import { apiErrorMessage } from '@/lib/api'
 import { ItemPicker } from '@/components/ItemPicker'
@@ -109,12 +109,79 @@ function CreateForm({ onDone }: { onDone: () => void }) {
   )
 }
 
+function EditForm({ row, onDone }: { row: LendRow; onDone: () => void }) {
+  const update = useTrackingUpdate<LendRow>('lend', row.id)
+  const [qty, setQty] = useState(row.qty)
+  const [borrower, setBorrower] = useState(row.borrower_name ?? '')
+  const [purpose, setPurpose] = useState(row.purpose)
+  const [estDays, setEstDays] = useState('')
+  const [err, setErr] = useState<string | null>(null)
+
+  return (
+    <div className="space-y-3 rounded-lg border bg-muted/30 p-3">
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <Label>Qty</Label>
+          <Input type="number" min={0} step="any" className="mt-1" value={qty} onChange={(e) => setQty(Number(e.target.value))} />
+        </div>
+        <div>
+          <Label>Peminjam</Label>
+          <Input className="mt-1" value={borrower} onChange={(e) => setBorrower(e.target.value)} />
+        </div>
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <Label>Tujuan</Label>
+          <Select className="mt-1" value={purpose} onChange={(e) => setPurpose(e.target.value)}>
+            <option value="RELASI">Relasi</option>
+            <option value="PROJECT">Proyek</option>
+            <option value="INTERNAL">Internal</option>
+          </Select>
+        </div>
+        <div>
+          <Label>Estimasi hari (kosongkan bila tak berubah)</Label>
+          <Input type="number" min={1} className="mt-1" value={estDays} onChange={(e) => setEstDays(e.target.value)} />
+        </div>
+      </div>
+      {err && <p className="text-sm text-destructive">{err}</p>}
+      <div className="flex justify-end gap-2">
+        <Button variant="outline" size="sm" onClick={onDone}>
+          Batal
+        </Button>
+        <Button
+          size="sm"
+          disabled={update.isPending}
+          onClick={() =>
+            update.mutate(
+              { qty, borrower_name: borrower || undefined, purpose, est_days: estDays ? Number(estDays) : undefined },
+              { onSuccess: onDone, onError: (e) => setErr(apiErrorMessage(e)) },
+            )
+          }
+        >
+          Simpan
+        </Button>
+      </div>
+    </div>
+  )
+}
+
 function Detail({ row, onDone }: { row: LendRow; onDone: () => void }) {
   const qc = useQueryClient()
+  const { hasPermission } = useAuth()
   const action = useTrackingAction<LendRow>('lend', row.id)
+  const del = useTrackingDelete('lend')
   const [qty, setQty] = useState(Math.max(row.qty - row.qty_returned, 0))
   const [err, setErr] = useState<string | null>(null)
+  const [editing, setEditing] = useState(false)
   const open = !['RETURNED'].includes(row.status)
+  const editable = row.status === 'ON_LOAN' && row.qty_returned === 0
+
+  function remove() {
+    if (!window.confirm(`Hapus Lend ${row.number}?`)) return
+    del.mutate(row.id, { onSuccess: onDone, onError: (e) => setErr(apiErrorMessage(e)) })
+  }
+
+  if (editing) return <EditForm row={row} onDone={() => setEditing(false)} />
 
   return (
     <div className="space-y-4">
@@ -133,6 +200,16 @@ function Detail({ row, onDone }: { row: LendRow; onDone: () => void }) {
           ['RI kembali', row.return_ri],
         ]}
       />
+      {editable && (hasPermission('lend.update')) && (
+        <div className="flex gap-2">
+          <Button size="sm" variant="outline" onClick={() => setEditing(true)}>
+            <Pencil className="size-4" /> Ubah
+          </Button>
+          <Button size="sm" variant="destructive" onClick={remove} disabled={del.isPending}>
+            <Trash2 className="size-4" /> Hapus
+          </Button>
+        </div>
+      )}
       {open && (
         <div className="space-y-2 rounded-lg border bg-muted/30 p-3">
           <Label>Catat pengembalian</Label>

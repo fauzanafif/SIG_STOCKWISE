@@ -52,6 +52,30 @@ class StppController extends Controller
         return response()->json(['data' => $this->row($this->service->issue($request->user(), $data))], 201);
     }
 
+    public function update(Request $request, StppTransaction $stpp): JsonResponse
+    {
+        $data = $request->validate([
+            'item_id' => ['nullable', 'integer', 'exists:items,id'],
+            'description_raw' => ['nullable', 'string', 'max:400'],
+            'qty' => ['sometimes', 'numeric', 'gt:0'],
+            'unit_id' => ['nullable', 'integer', 'exists:units,id'],
+            'holder_id' => ['nullable', 'integer', 'exists:employees,id'],
+            'holder_name_raw' => ['nullable', 'string', 'max:150'],
+            'placement_department_id' => ['nullable', 'integer', 'exists:departments,id'],
+            'placement_raw' => ['nullable', 'string', 'max:80'],
+            'out_note' => ['nullable', 'string', 'max:255'],
+        ]);
+
+        return response()->json(['data' => $this->row($this->service->update($stpp, $data))]);
+    }
+
+    public function destroy(StppTransaction $stpp): JsonResponse
+    {
+        $this->service->delete($stpp);
+
+        return response()->json(['message' => 'STPP dihapus.']);
+    }
+
     public function withdraw(Request $request, StppTransaction $stpp): JsonResponse
     {
         $data = $request->validate([

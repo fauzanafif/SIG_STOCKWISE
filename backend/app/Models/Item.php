@@ -57,6 +57,16 @@ class Item extends Model
         return $this->belongsTo(Unit::class);
     }
 
+    public function defaultWarehouse(): BelongsTo
+    {
+        return $this->belongsTo(Warehouse::class, 'default_warehouse_id');
+    }
+
+    public function defaultLocation(): BelongsTo
+    {
+        return $this->belongsTo(WarehouseLocation::class, 'default_location_id');
+    }
+
     public function aliases(): HasMany
     {
         return $this->hasMany(ItemAlias::class);

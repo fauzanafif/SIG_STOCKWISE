@@ -75,4 +75,57 @@ class UsedReturnService
 
         return $ur->refresh()->load('items');
     }
+
+    /**
+     * Ubah data Pengembalian Bekas selagi PENDING (belum ada RI bekas).
+     *
+     * @param  array{npbg_ref_raw?:?string, return_date?:?string, note?:?string, items?:array<int,array{item_id?:?int, component_type_id?:?int, description_raw?:string, qty:float, unit_id?:?int, condition?:string, into_stock?:bool}>}  $data
+     */
+    public function update(UsedReturn $ur, array $data): UsedReturn
+    {
+        $this->assertEditable($ur);
+
+        return DB::transaction(function () use ($ur, $data) {
+            $ur->update([
+                'npbg_ref_raw' => $data['npbg_ref_raw'] ?? $ur->npbg_ref_raw,
+                'return_date' => isset($data['return_date']) ? Carbon::parse($data['return_date'])->toDateString() : $ur->return_date?->toDateString(),
+                'note' => $data['note'] ?? $ur->note,
+            ]);
+
+            if (isset($data['items'])) {
+                $ur->items()->delete();
+                foreach (array_values($data['items']) as $i => $row) {
+                    $ur->items()->create([
+                        'item_id' => $row['item_id'] ?? null,
+                        'component_type_id' => $row['component_type_id'] ?? null,
+                        'description_raw' => $row['description_raw'] ?? null,
+                        'qty' => $row['qty'],
+                        'unit_id' => $row['unit_id'] ?? null,
+                        'condition' => strtoupper($row['condition'] ?? 'USED'),
+                        'into_stock' => $row['into_stock'] ?? false,
+                        'item_no' => $i + 1,
+                    ]);
+                }
+            }
+
+            return $ur->refresh()->load('items');
+        });
+    }
+
+    /** Hapus — hanya selagi PENDING (belum ada RI bekas). */
+    public function delete(UsedReturn $ur): void
+    {
+        $this->assertEditable($ur);
+        DB::transaction(function () use ($ur) {
+            $ur->items()->delete();
+            $ur->delete();
+        });
+    }
+
+    private function assertEditable(UsedReturn $ur): void
+    {
+        if ($ur->status !== 'PENDING') {
+            throw ValidationException::withMessages(['status' => ['Pengembalian bekas yang sudah CLEAR tidak bisa diubah/dihapus.']]);
+        }
+    }
 }

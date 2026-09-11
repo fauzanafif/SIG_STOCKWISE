@@ -54,6 +54,46 @@ class MaintenanceController extends Controller
         return response()->json(['data' => $this->row($this->service->createOrder($request->user(), $data)->loadCount('subs'))], 201);
     }
 
+    public function update(Request $request, MaintenanceOrder $maintenanceOrder): JsonResponse
+    {
+        $data = $request->validate([
+            'asset_id' => ['sometimes', 'integer', 'exists:assets,id'],
+            'report_date' => ['sometimes', 'date'],
+            'reported_by' => ['nullable', 'integer', 'exists:employees,id'],
+            'problem_summary' => ['nullable', 'string', 'max:255'],
+        ]);
+        $this->service->updateOrder($maintenanceOrder, $data);
+
+        return $this->show($maintenanceOrder->fresh());
+    }
+
+    public function destroy(MaintenanceOrder $maintenanceOrder): JsonResponse
+    {
+        $this->service->deleteOrder($maintenanceOrder);
+
+        return response()->json(['message' => 'SPK dihapus.']);
+    }
+
+    public function updateSub(Request $request, MaintenanceOrderSub $sub): JsonResponse
+    {
+        $data = $request->validate([
+            'workshop_id' => ['nullable', 'integer', 'exists:workshops,id'],
+            'workshop_raw' => ['nullable', 'string', 'max:80'],
+            'problem_detail' => ['nullable', 'string', 'max:2000'],
+        ]);
+        $this->service->updateSub($sub, $data);
+
+        return $this->show($sub->order()->first());
+    }
+
+    public function destroySub(MaintenanceOrderSub $sub): JsonResponse
+    {
+        $order = $sub->order;
+        $this->service->deleteSub($sub);
+
+        return $this->show($order->fresh());
+    }
+
     public function addSub(Request $request, MaintenanceOrder $maintenanceOrder): JsonResponse
     {
         $data = $request->validate([

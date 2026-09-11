@@ -17,4 +17,9 @@ class PpbAmendment extends Model
     {
         return $this->belongsTo(Ppb::class);
     }
+
+    public function ppbItem()
+    {
+        return $this->belongsTo(PpbItem::class);
+    }
 }

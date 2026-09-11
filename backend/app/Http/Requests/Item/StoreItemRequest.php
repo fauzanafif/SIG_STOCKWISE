@@ -24,6 +24,8 @@ class StoreItemRequest extends FormRequest
             'lead_time_days' => ['nullable', 'integer', 'min:0', 'max:3650'],
             'default_warehouse_id' => ['nullable', 'integer', Rule::exists('warehouses', 'id')],
             'default_location_id' => ['nullable', 'integer', Rule::exists('warehouse_locations', 'id')],
+            'blueprint_img_path' => ['nullable', 'string', 'max:255'],
+            'blueprint_3d_ref' => ['nullable', 'string', 'max:60'],
             'is_active' => ['sometimes', 'boolean'],
         ];
     }

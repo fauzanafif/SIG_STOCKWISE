@@ -86,6 +86,44 @@ class PpbService
         });
     }
 
+    /**
+     * Ubah PPB selagi DRAFT — belum submit, belum ada PO yang menunjuk baris ini.
+     *
+     * @param  array{notes?:?string, items?:array<int,array{item_id?:?int, description_raw?:string, qty:float, unit_id?:?int}>}  $data
+     */
+    public function update(Ppb $ppb, array $data): Ppb
+    {
+        $this->assert($ppb, ['DRAFT']);
+
+        return DB::transaction(function () use ($ppb, $data) {
+            if (array_key_exists('notes', $data)) {
+                $ppb->update(['notes' => $data['notes']]);
+            }
+            if (isset($data['items'])) {
+                $ppb->items()->delete();
+                foreach ($data['items'] as $row) {
+                    $item = ! empty($row['item_id']) ? Item::find($row['item_id']) : null;
+                    $this->addLine($ppb, array_merge($row, [
+                        'description_raw' => $row['description_raw'] ?? $item?->description ?? '-',
+                    ]));
+                }
+            }
+
+            return $ppb->fresh('items');
+        });
+    }
+
+    /** Hapus PPB — hanya selagi DRAFT (belum submit, tidak ada jejak downstream). */
+    public function delete(Ppb $ppb): void
+    {
+        $this->assert($ppb, ['DRAFT']);
+        DB::transaction(function () use ($ppb) {
+            $ppb->items()->delete();
+            $ppb->amendments()->delete();
+            $ppb->delete();
+        });
+    }
+
     public function submit(Ppb $ppb): Ppb
     {
         $this->assert($ppb, ['DRAFT']);

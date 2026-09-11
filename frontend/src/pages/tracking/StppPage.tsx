@@ -1,7 +1,7 @@
 import { useState } from 'react'
-import { Package } from 'lucide-react'
+import { Package, Pencil, Trash2 } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
-import { useTrackingAction, useTrackingCreate, type StppRow } from '@/features/tracking/api'
+import { useTrackingAction, useTrackingCreate, useTrackingDelete, useTrackingUpdate, type StppRow } from '@/features/tracking/api'
 import { useAuth } from '@/auth/AuthContext'
 import { apiErrorMessage } from '@/lib/api'
 import { ItemPicker } from '@/components/ItemPicker'
@@ -96,11 +96,59 @@ function CreateForm({ onDone }: { onDone: () => void }) {
   )
 }
 
+function EditForm({ row, onDone }: { row: StppRow; onDone: () => void }) {
+  const update = useTrackingUpdate<StppRow>('stpp', row.id)
+  const [desc, setDesc] = useState(row.description)
+  const [holder, setHolder] = useState(row.holder ?? '')
+  const [placement, setPlacement] = useState(row.placement ?? '')
+  const [err, setErr] = useState<string | null>(null)
+
+  return (
+    <div className="space-y-3 rounded-lg border bg-muted/30 p-3">
+      <div>
+        <Label>Deskripsi alat</Label>
+        <Input className="mt-1" value={desc} onChange={(e) => setDesc(e.target.value)} />
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <Label>Pemegang</Label>
+          <Input className="mt-1" value={holder} onChange={(e) => setHolder(e.target.value)} />
+        </div>
+        <div>
+          <Label>Penempatan</Label>
+          <Input className="mt-1" value={placement} onChange={(e) => setPlacement(e.target.value)} />
+        </div>
+      </div>
+      {err && <p className="text-sm text-destructive">{err}</p>}
+      <div className="flex justify-end gap-2">
+        <Button variant="outline" size="sm" onClick={onDone}>
+          Batal
+        </Button>
+        <Button
+          size="sm"
+          disabled={update.isPending}
+          onClick={() =>
+            update.mutate(
+              { description_raw: desc, holder_name_raw: holder || undefined, placement_raw: placement || undefined },
+              { onSuccess: onDone, onError: (e) => setErr(apiErrorMessage(e)) },
+            )
+          }
+        >
+          Simpan
+        </Button>
+      </div>
+    </div>
+  )
+}
+
 function Detail({ row, onDone }: { row: StppRow; onDone: () => void }) {
   const qc = useQueryClient()
+  const { hasPermission } = useAuth()
   const action = useTrackingAction<StppRow>('stpp', row.id)
+  const del = useTrackingDelete('stpp')
   const [note, setNote] = useState('')
   const [err, setErr] = useState<string | null>(null)
+  const [editing, setEditing] = useState(false)
   const done = (name: string, body?: unknown) =>
     action.mutate(
       { action: name, body },
@@ -112,6 +160,13 @@ function Detail({ row, onDone }: { row: StppRow; onDone: () => void }) {
         onError: (e) => setErr(apiErrorMessage(e)),
       },
     )
+
+  function remove() {
+    if (!window.confirm(`Hapus STPP ${row.number}?`)) return
+    del.mutate(row.id, { onSuccess: onDone, onError: (e) => setErr(apiErrorMessage(e)) })
+  }
+
+  if (editing) return <EditForm row={row} onDone={() => setEditing(false)} />
 
   return (
     <div className="space-y-4">
@@ -129,6 +184,16 @@ function Detail({ row, onDone }: { row: StppRow; onDone: () => void }) {
           ['RI penarikan', row.return_ri],
         ]}
       />
+      {row.status === 'ACTIVE' && hasPermission('stpp.update') && (
+        <div className="flex gap-2">
+          <Button size="sm" variant="outline" onClick={() => setEditing(true)}>
+            <Pencil className="size-4" /> Ubah
+          </Button>
+          <Button size="sm" variant="destructive" onClick={remove} disabled={del.isPending}>
+            <Trash2 className="size-4" /> Hapus
+          </Button>
+        </div>
+      )}
       {row.status === 'ACTIVE' && (
         <div className="space-y-2 rounded-lg border bg-muted/30 p-3">
           <Label>Tarik alat (rusak / selesai)</Label>

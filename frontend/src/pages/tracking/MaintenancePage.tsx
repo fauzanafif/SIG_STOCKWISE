@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Wrench } from 'lucide-react'
+import { Pencil, Trash2, Wrench } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
 import {
@@ -87,12 +87,73 @@ function Detail({ id, onDone }: { id: number; onDone: () => void }) {
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState<string | null>(null)
   const [noteBySub, setNoteBySub] = useState<Record<number, string>>({})
+  const [editingOrder, setEditingOrder] = useState(false)
+  const [editSummary, setEditSummary] = useState('')
+  const [editingSub, setEditingSub] = useState<number | null>(null)
+  const [editSubDetail, setEditSubDetail] = useState('')
 
   if (isLoading || !order) return <p className="text-muted-foreground">Memuat…</p>
 
   const invalidate = () => {
     qc.invalidateQueries({ queryKey: ['maintenance-orders'] })
     refetch()
+  }
+
+  const saveOrder = async () => {
+    setBusy(true)
+    setErr(null)
+    try {
+      await api.put(`/api/maintenance-orders/${id}`, { problem_summary: editSummary })
+      setEditingOrder(false)
+      invalidate()
+    } catch (e) {
+      setErr(apiErrorMessage(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const removeOrder = async () => {
+    if (!window.confirm(`Hapus SPK ${order.number}?`)) return
+    setBusy(true)
+    setErr(null)
+    try {
+      await api.delete(`/api/maintenance-orders/${id}`)
+      qc.invalidateQueries({ queryKey: ['maintenance-orders'] })
+      onDone()
+    } catch (e) {
+      setErr(apiErrorMessage(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const saveSub = async (subId: number) => {
+    setBusy(true)
+    setErr(null)
+    try {
+      await api.put(`/api/maintenance-subs/${subId}`, { problem_detail: editSubDetail })
+      setEditingSub(null)
+      invalidate()
+    } catch (e) {
+      setErr(apiErrorMessage(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const removeSub = async (subId: number) => {
+    if (!window.confirm('Hapus sub-pekerjaan ini?')) return
+    setBusy(true)
+    setErr(null)
+    try {
+      await api.delete(`/api/maintenance-subs/${subId}`)
+      invalidate()
+    } catch (e) {
+      setErr(apiErrorMessage(e))
+    } finally {
+      setBusy(false)
+    }
   }
 
   const addSub = async () => {

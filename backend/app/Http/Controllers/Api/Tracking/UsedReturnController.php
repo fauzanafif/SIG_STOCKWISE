@@ -65,6 +65,33 @@ class UsedReturnController extends Controller
         return response()->json(['data' => $this->row($this->service->create($request->user(), $data)->loadCount('items'))], 201);
     }
 
+    public function update(Request $request, UsedReturn $usedReturn): JsonResponse
+    {
+        $data = $request->validate([
+            'npbg_ref_raw' => ['nullable', 'string', 'max:60'],
+            'return_date' => ['sometimes', 'date'],
+            'note' => ['nullable', 'string', 'max:2000'],
+            'items' => ['sometimes', 'array', 'min:1'],
+            'items.*.item_id' => ['nullable', 'integer', 'exists:items,id'],
+            'items.*.component_type_id' => ['nullable', 'integer', 'exists:used_return_component_types,id'],
+            'items.*.description_raw' => ['nullable', 'string', 'max:400'],
+            'items.*.qty' => ['required_with:items', 'numeric'],
+            'items.*.unit_id' => ['nullable', 'integer', 'exists:units,id'],
+            'items.*.condition' => ['nullable', 'in:REUSABLE,SCRAP,DAMAGED,USED,reusable,scrap,damaged,used'],
+            'items.*.into_stock' => ['sometimes', 'boolean'],
+        ]);
+        $this->service->update($usedReturn, $data);
+
+        return $this->show($usedReturn->fresh());
+    }
+
+    public function destroy(UsedReturn $usedReturn): JsonResponse
+    {
+        $this->service->delete($usedReturn);
+
+        return response()->json(['message' => 'Pengembalian bekas dihapus.']);
+    }
+
     public function close(Request $request, UsedReturn $usedReturn): JsonResponse
     {
         $data = $request->validate([

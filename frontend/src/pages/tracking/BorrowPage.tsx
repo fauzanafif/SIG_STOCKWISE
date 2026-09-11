@@ -1,7 +1,7 @@
 import { useState } from 'react'
-import { ArrowLeftRight } from 'lucide-react'
+import { ArrowLeftRight, Pencil, Trash2 } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
-import { useTrackingAction, useTrackingCreate, useVendorOptions, type BorrowRow } from '@/features/tracking/api'
+import { useTrackingAction, useTrackingCreate, useTrackingDelete, useTrackingUpdate, useVendorOptions, type BorrowRow } from '@/features/tracking/api'
 import { useAuth } from '@/auth/AuthContext'
 import { apiErrorMessage } from '@/lib/api'
 import { TrackingModule, DetailGrid } from '@/components/tracking/TrackingModule'
@@ -92,12 +92,68 @@ function CreateForm({ onDone }: { onDone: () => void }) {
   )
 }
 
+function EditForm({ row, onDone }: { row: BorrowRow; onDone: () => void }) {
+  const update = useTrackingUpdate<BorrowRow>('borrow', row.id)
+  const [desc, setDesc] = useState(row.description)
+  const [lenderName, setLenderName] = useState(row.lender_name ?? '')
+  const [receipt, setReceipt] = useState(row.receipt_ref ?? '')
+  const [err, setErr] = useState<string | null>(null)
+
+  return (
+    <div className="space-y-3 rounded-lg border bg-muted/30 p-3">
+      <div>
+        <Label>Deskripsi barang</Label>
+        <Input className="mt-1" value={desc} onChange={(e) => setDesc(e.target.value)} />
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <Label>Dari</Label>
+          <Input className="mt-1" value={lenderName} onChange={(e) => setLenderName(e.target.value)} />
+        </div>
+        <div>
+          <Label>No. Tanda Terima</Label>
+          <Input className="mt-1" value={receipt} onChange={(e) => setReceipt(e.target.value)} />
+        </div>
+      </div>
+      {err && <p className="text-sm text-destructive">{err}</p>}
+      <div className="flex justify-end gap-2">
+        <Button variant="outline" size="sm" onClick={onDone}>
+          Batal
+        </Button>
+        <Button
+          size="sm"
+          disabled={update.isPending}
+          onClick={() =>
+            update.mutate(
+              { description_raw: desc, lender_name: lenderName || undefined, receipt_ref: receipt || undefined },
+              { onSuccess: onDone, onError: (e) => setErr(apiErrorMessage(e)) },
+            )
+          }
+        >
+          Simpan
+        </Button>
+      </div>
+    </div>
+  )
+}
+
 function Detail({ row, onDone }: { row: BorrowRow; onDone: () => void }) {
   const qc = useQueryClient()
+  const { hasPermission } = useAuth()
   const action = useTrackingAction<BorrowRow>('borrow', row.id)
+  const del = useTrackingDelete('borrow')
   const [qty, setQty] = useState(Math.max(row.qty - row.qty_returned, 0))
   const [err, setErr] = useState<string | null>(null)
+  const [editing, setEditing] = useState(false)
   const open = row.status !== 'RETURNED'
+  const editable = row.status === 'BORROWED' && row.qty_returned === 0
+
+  function remove() {
+    if (!window.confirm(`Hapus Borrow ${row.number}?`)) return
+    del.mutate(row.id, { onSuccess: onDone, onError: (e) => setErr(apiErrorMessage(e)) })
+  }
+
+  if (editing) return <EditForm row={row} onDone={() => setEditing(false)} />
 
   return (
     <div className="space-y-4">
@@ -114,6 +170,16 @@ function Detail({ row, onDone }: { row: BorrowRow; onDone: () => void }) {
           ['NPBG pengembalian', row.return_npbg],
         ]}
       />
+      {editable && hasPermission('borrow.update') && (
+        <div className="flex gap-2">
+          <Button size="sm" variant="outline" onClick={() => setEditing(true)}>
+            <Pencil className="size-4" /> Ubah
+          </Button>
+          <Button size="sm" variant="destructive" onClick={remove} disabled={del.isPending}>
+            <Trash2 className="size-4" /> Hapus
+          </Button>
+        </div>
+      )}
       {open && (
         <div className="space-y-2 rounded-lg border bg-muted/30 p-3">
           <Label>Catat pengembalian (via NPBG keluar)</Label>

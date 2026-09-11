@@ -49,6 +49,30 @@ class BorrowController extends Controller
         return response()->json(['data' => $this->row($this->service->create($request->user(), $data))], 201);
     }
 
+    public function update(Request $request, BorrowTransaction $borrow): JsonResponse
+    {
+        $data = $request->validate([
+            'item_id' => ['nullable', 'integer', 'exists:items,id'],
+            'description_raw' => ['nullable', 'string', 'max:400'],
+            'qty' => ['sometimes', 'numeric', 'gt:0'],
+            'unit_id' => ['nullable', 'integer', 'exists:units,id'],
+            'lender_vendor_id' => ['nullable', 'integer', 'exists:vendors,id'],
+            'lender_name' => ['nullable', 'string', 'max:200'],
+            'receipt_ref' => ['nullable', 'string', 'max:60'],
+            'borrowed_at' => ['sometimes', 'date'],
+            'condition_note' => ['nullable', 'string', 'max:255'],
+        ]);
+
+        return response()->json(['data' => $this->row($this->service->update($borrow, $data))]);
+    }
+
+    public function destroy(BorrowTransaction $borrow): JsonResponse
+    {
+        $this->service->delete($borrow);
+
+        return response()->json(['message' => 'Borrow dihapus.']);
+    }
+
     public function return(Request $request, BorrowTransaction $borrow): JsonResponse
     {
         $data = $request->validate([

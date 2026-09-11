@@ -68,6 +68,46 @@ class BorrowService
         return $borrow->refresh();
     }
 
+    /**
+     * Ubah data Borrow selagi belum ada pengembalian sama sekali.
+     *
+     * @param  array{item_id?:?int, description_raw?:?string, qty?:float, unit_id?:?int, lender_vendor_id?:?int, lender_name?:?string, receipt_ref?:?string, borrowed_at?:?string, condition_note?:?string}  $data
+     */
+    public function update(BorrowTransaction $borrow, array $data): BorrowTransaction
+    {
+        $this->assertEditable($borrow);
+
+        $borrow->update([
+            'item_id' => $data['item_id'] ?? $borrow->item_id,
+            'description_raw' => $data['description_raw'] ?? $borrow->description_raw,
+            'qty' => $data['qty'] ?? $borrow->qty,
+            'unit_id' => $data['unit_id'] ?? $borrow->unit_id,
+            'lender_vendor_id' => $data['lender_vendor_id'] ?? $borrow->lender_vendor_id,
+            'lender_name' => $data['lender_name'] ?? $borrow->lender_name,
+            'receipt_ref' => $data['receipt_ref'] ?? $borrow->receipt_ref,
+            'borrowed_at' => isset($data['borrowed_at']) ? Carbon::parse($data['borrowed_at'])->toDateString() : $borrow->borrowed_at,
+            'condition_note' => $data['condition_note'] ?? $borrow->condition_note,
+        ]);
+
+        return $borrow->refresh();
+    }
+
+    /** Hapus baris Borrow — hanya selagi belum ada pengembalian yang tercatat. */
+    public function delete(BorrowTransaction $borrow): void
+    {
+        $this->assertEditable($borrow);
+        $borrow->delete();
+    }
+
+    private function assertEditable(BorrowTransaction $borrow): void
+    {
+        if ($borrow->status !== 'BORROWED' || (float) $borrow->qty_returned > 0) {
+            throw ValidationException::withMessages([
+                'status' => ['Borrow yang sudah ada pengembalian tidak bisa diubah/dihapus.'],
+            ]);
+        }
+    }
+
     /** @param list<string> $allowed */
     private function assert(BorrowTransaction $borrow, array $allowed): void
     {

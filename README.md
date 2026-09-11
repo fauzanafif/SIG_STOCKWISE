@@ -27,6 +27,7 @@ Dibangun bertahap (lihat `docs/`). Status: **10 fase selesai** — siap uji paka
 | 8 — Tracking (Lend/Borrow/STPP/Ban Luar/Maintenance/Manufaktur/Bekas) | ✅ `docs/phase-8-report.md` |
 | 9 — Dashboard per peran (KPI + chart) | ✅ `docs/phase-9-report.md` |
 | 10 — Laporan & Export (Excel / CSV / PDF) | ✅ `docs/phase-10-report.md` |
+| 11 — Excel Klasik (replika 9 file Excel lama, isi data live) | ✅ `docs/legacy-excel-export.md` |
 
 > `migrate:fresh --seed` menjalankan import Excel penuh (~2–3 menit). Untuk reset cepat tanpa import:
 > `php artisan migrate:fresh && php artisan db:seed --class=SiteSeeder && php artisan db:seed --class=RbacSeeder && php artisan db:seed --class=UserSeeder`

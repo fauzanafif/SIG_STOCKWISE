@@ -182,4 +182,130 @@ class TrackingFlowTest extends TestCase
             $this->getJson("/api/{$base}/{$id}")->assertOk()->assertJsonPath('data.id', $id);
         }
     }
+
+    /** Semua modul tracking bisa diedit/dihapus admin selagi masih "open" — untuk re-entry data Excel. */
+    public function test_lend_can_be_edited_and_deleted_while_open_only(): void
+    {
+        $this->actingAsRole('admin_gudang', ['site_id' => $this->site->id]);
+        $item = Item::factory()->create();
+        $lend = $this->postJson('/api/lend', ['item_id' => $item->id, 'qty' => 5, 'borrower_name' => 'A'])->json('data');
+
+        $this->putJson("/api/lend/{$lend['id']}", ['qty' => 8, 'borrower_name' => 'B'])
+            ->assertOk()->assertJsonPath('data.qty', 8)->assertJsonPath('data.borrower_name', 'B');
+
+        $this->postJson("/api/lend/{$lend['id']}/return", ['qty' => 8]);
+        $this->putJson("/api/lend/{$lend['id']}", ['qty' => 1])->assertStatus(422);
+        $this->deleteJson("/api/lend/{$lend['id']}")->assertStatus(422);
+
+        $lend2 = $this->postJson('/api/lend', ['item_id' => $item->id, 'qty' => 3])->json('data');
+        $this->deleteJson("/api/lend/{$lend2['id']}")->assertOk();
+        $this->assertDatabaseMissing('lend_transactions', ['id' => $lend2['id']]);
+    }
+
+    public function test_borrow_can_be_edited_and_deleted_while_open_only(): void
+    {
+        $this->actingAsRole('admin_gudang', ['site_id' => $this->site->id]);
+        $borrow = $this->postJson('/api/borrow', ['description_raw' => 'Trafo', 'qty' => 1, 'lender_name' => 'X'])->json('data');
+
+        $this->putJson("/api/borrow/{$borrow['id']}", ['lender_name' => 'Y'])
+            ->assertOk()->assertJsonPath('data.lender_name', 'Y');
+
+        $this->postJson("/api/borrow/{$borrow['id']}/return", ['qty' => 1]);
+        $this->deleteJson("/api/borrow/{$borrow['id']}")->assertStatus(422);
+    }
+
+    public function test_stpp_can_be_edited_and_deleted_while_active_only(): void
+    {
+        $this->actingAsRole('admin_gudang', ['site_id' => $this->site->id]);
+        $stpp = $this->postJson('/api/stpp', ['serial_no' => 'SN-9', 'description_raw' => 'Alat', 'holder_name_raw' => 'A'])->json('data');
+
+        $this->putJson("/api/stpp/{$stpp['id']}", ['holder_name_raw' => 'B'])
+            ->assertOk()->assertJsonPath('data.holder', 'B');
+
+        $this->postJson("/api/stpp/{$stpp['id']}/withdraw", []);
+        $this->putJson("/api/stpp/{$stpp['id']}", ['holder_name_raw' => 'C'])->assertStatus(422);
+        $this->deleteJson("/api/stpp/{$stpp['id']}")->assertStatus(422);
+    }
+
+    public function test_tyre_change_can_be_edited_and_deleted_while_pending_only(): void
+    {
+        $this->actingAsRole('admin_gudang', ['site_id' => $this->site->id]);
+        $asset = Asset::factory()->create(['site_id' => $this->site->id]);
+        $tc = $this->postJson('/api/tyre-changes', ['asset_id' => $asset->id, 'position' => 'FRONT_L'])->json('data');
+
+        $this->putJson("/api/tyre-changes/{$tc['id']}", ['reason' => 'aus'])
+            ->assertOk()->assertJsonPath('data.reason', 'aus');
+
+        $this->postJson("/api/tyre-changes/{$tc['id']}/close", []);
+        $this->putJson("/api/tyre-changes/{$tc['id']}", ['reason' => 'lain'])->assertStatus(422);
+
+        $tc2 = $this->postJson('/api/tyre-changes', ['asset_id' => $asset->id, 'position' => 'FRONT_R'])->json('data');
+        $this->deleteJson("/api/tyre-changes/{$tc2['id']}")->assertOk();
+        $this->assertDatabaseMissing('tyre_changes', ['id' => $tc2['id']]);
+    }
+
+    public function test_maintenance_order_and_sub_edit_delete_rules(): void
+    {
+        $this->actingAsRole('admin_gudang', ['site_id' => $this->site->id]);
+        $asset = Asset::factory()->create(['site_id' => $this->site->id]);
+        $order = $this->postJson('/api/maintenance-orders', [
+            'asset_id' => $asset->id, 'site_id' => $this->site->id, 'problem_summary' => 'awal',
+        ])->json('data');
+
+        $this->putJson("/api/maintenance-orders/{$order['id']}", ['problem_summary' => 'diubah'])
+            ->assertOk()->assertJsonPath('data.problem_summary', 'diubah');
+
+        $sub = $this->postJson("/api/maintenance-orders/{$order['id']}/subs", ['problem_detail' => 'sub1'])
+            ->json('data.subs.0');
+
+        // order sudah punya sub -> tidak bisa dihapus langsung
+        $this->deleteJson("/api/maintenance-orders/{$order['id']}")->assertStatus(422);
+
+        $this->putJson("/api/maintenance-subs/{$sub['id']}", ['problem_detail' => 'sub1 revisi'])
+            ->assertOk()->assertJsonPath('data.subs.0.problem_detail', 'sub1 revisi');
+
+        $this->postJson("/api/maintenance-subs/{$sub['id']}/complete", ['result_note' => 'selesai']);
+        $this->putJson("/api/maintenance-subs/{$sub['id']}", ['problem_detail' => 'x'])->assertStatus(422);
+        $this->deleteJson("/api/maintenance-subs/{$sub['id']}")->assertStatus(422);
+    }
+
+    public function test_manufacturing_order_and_sub_edit_delete_rules(): void
+    {
+        $this->actingAsRole('admin_gudang', ['site_id' => $this->site->id]);
+        $order = $this->postJson('/api/manufacturing-orders', [
+            'kind' => 'ASSEMBLY', 'site_id' => $this->site->id, 'product_name' => 'Manifold',
+        ])->json('data');
+
+        $this->putJson("/api/manufacturing-orders/{$order['id']}", ['product_name' => 'Manifold V2'])
+            ->assertOk()->assertJsonPath('data.product_name', 'Manifold V2');
+
+        $this->deleteJson("/api/manufacturing-orders/{$order['id']}")->assertOk();
+        $this->assertDatabaseMissing('manufacturing_orders', ['id' => $order['id']]);
+    }
+
+    public function test_used_return_can_be_edited_and_deleted_while_pending_only(): void
+    {
+        $this->actingAsRole('admin_gudang', ['site_id' => $this->site->id]);
+        $item = Item::factory()->create();
+        $ur = $this->postJson('/api/used-returns', ['items' => [['item_id' => $item->id, 'qty' => 2, 'condition' => 'USED']]])
+            ->json('data');
+
+        $this->putJson("/api/used-returns/{$ur['id']}", ['note' => 'revisi'])
+            ->assertOk()->assertJsonPath('data.note', 'revisi');
+
+        $this->postJson("/api/used-returns/{$ur['id']}/close", []);
+        $this->putJson("/api/used-returns/{$ur['id']}", ['note' => 'x'])->assertStatus(422);
+        $this->deleteJson("/api/used-returns/{$ur['id']}")->assertStatus(422);
+    }
+
+    public function test_karyawan_cannot_edit_or_delete_tracking_rows(): void
+    {
+        $item = Item::factory()->create();
+        $this->actingAsRole('admin_gudang', ['site_id' => $this->site->id]);
+        $lend = $this->postJson('/api/lend', ['item_id' => $item->id, 'qty' => 1])->json('data');
+
+        $this->actingAsRole('karyawan', ['site_id' => $this->site->id]);
+        $this->putJson("/api/lend/{$lend['id']}", ['qty' => 2])->assertForbidden();
+        $this->deleteJson("/api/lend/{$lend['id']}")->assertForbidden();
+    }
 }

@@ -132,6 +132,30 @@ class PurchasingFlowTest extends TestCase
             ->assertJsonPath('data.status', 'CANCELLED');
     }
 
+    public function test_ppb_edit_and_delete_only_while_draft(): void
+    {
+        $this->actingAsRole('admin_gudang', ['site_id' => $this->site->id]);
+        $item = Item::factory()->create();
+
+        $ppb = $this->postJson('/api/ppb', ['items' => [['item_id' => $item->id, 'qty' => 3]]])
+            ->assertCreated()->json('data');
+
+        $this->putJson("/api/ppb/{$ppb['id']}", [
+            'notes' => 'revisi qty', 'items' => [['item_id' => $item->id, 'qty' => 5]],
+        ])->assertOk()
+            ->assertJsonPath('data.notes', 'revisi qty')
+            ->assertJsonPath('data.items.0.qty', 5);
+
+        $this->postJson("/api/ppb/{$ppb['id']}/submit")->assertOk();
+        $this->putJson("/api/ppb/{$ppb['id']}", ['notes' => 'coba edit setelah submit'])->assertStatus(422);
+        $this->deleteJson("/api/ppb/{$ppb['id']}")->assertStatus(422);
+
+        $ppb2 = $this->postJson('/api/ppb', ['items' => [['item_id' => $item->id, 'qty' => 1]]])
+            ->assertCreated()->json('data');
+        $this->deleteJson("/api/ppb/{$ppb2['id']}")->assertOk();
+        $this->assertDatabaseMissing('ppb', ['id' => $ppb2['id']]);
+    }
+
     public function test_karyawan_cannot_approve_ppb(): void
     {
         $ppb = Ppb::factory()->create(['status' => 'SUBMITTED', 'site_id' => $this->site->id]);
