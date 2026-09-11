@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Boxes } from 'lucide-react'
+import { Boxes, Pencil, Trash2 } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
 import { api, apiErrorMessage } from '@/lib/api'
 import { useTrackingCreate, useTrackingItem, useVendorOptions, type ManufacturingRow } from '@/features/tracking/api'
@@ -92,12 +92,73 @@ function Detail({ id, onDone }: { id: number; onDone: () => void }) {
   const [serial, setSerial] = useState('')
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState<string | null>(null)
+  const [editingOrder, setEditingOrder] = useState(false)
+  const [editProduct, setEditProduct] = useState('')
+  const [editingSub, setEditingSub] = useState<number | null>(null)
+  const [editProcess, setEditProcess] = useState('')
 
   if (isLoading || !order) return <p className="text-muted-foreground">Memuat…</p>
 
   const invalidate = () => {
     qc.invalidateQueries({ queryKey: ['manufacturing-orders'] })
     refetch()
+  }
+
+  const saveOrder = async () => {
+    setBusy(true)
+    setErr(null)
+    try {
+      await api.put(`/api/manufacturing-orders/${id}`, { product_name: editProduct })
+      setEditingOrder(false)
+      invalidate()
+    } catch (e) {
+      setErr(apiErrorMessage(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const removeOrder = async () => {
+    if (!window.confirm(`Hapus order ${order.number}?`)) return
+    setBusy(true)
+    setErr(null)
+    try {
+      await api.delete(`/api/manufacturing-orders/${id}`)
+      qc.invalidateQueries({ queryKey: ['manufacturing-orders'] })
+      onDone()
+    } catch (e) {
+      setErr(apiErrorMessage(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const saveSub = async (subId: number) => {
+    setBusy(true)
+    setErr(null)
+    try {
+      await api.put(`/api/manufacturing-subs/${subId}`, { process: editProcess })
+      setEditingSub(null)
+      invalidate()
+    } catch (e) {
+      setErr(apiErrorMessage(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const removeSub = async (subId: number) => {
+    if (!window.confirm('Hapus tahapan ini?')) return
+    setBusy(true)
+    setErr(null)
+    try {
+      await api.delete(`/api/manufacturing-subs/${subId}`)
+      invalidate()
+    } catch (e) {
+      setErr(apiErrorMessage(e))
+    } finally {
+      setBusy(false)
+    }
   }
 
   const addSub = async () => {
@@ -131,6 +192,9 @@ function Detail({ id, onDone }: { id: number; onDone: () => void }) {
     }
   }
 
+  const canEditOrder = hasPermission('manufacturing.update') && ['REQUESTED', 'ON_GOING'].includes(order.status)
+  const canDeleteOrder = canEditOrder && order.status === 'REQUESTED' && (order.subs_count ?? order.subs?.length ?? 0) === 0
+
   return (
     <div className="space-y-4">
       <DetailGrid
@@ -138,30 +202,84 @@ function Detail({ id, onDone }: { id: number; onDone: () => void }) {
           ['Nomor', <span className="font-mono text-xs">{order.number}</span>],
           ['Jenis', order.kind],
           ['Status', <RequestStatusBadge status={order.status} />],
-          ['Produk', order.product_name],
+          [
+            'Produk',
+            editingOrder ? (
+              <div className="flex items-center gap-2">
+                <Input className="h-8" value={editProduct} onChange={(e) => setEditProduct(e.target.value)} />
+                <Button size="sm" disabled={busy} onClick={saveOrder}>Simpan</Button>
+                <Button size="sm" variant="outline" onClick={() => setEditingOrder(false)}>Batal</Button>
+              </div>
+            ) : (
+              order.product_name
+            ),
+          ],
           ['Vendor', order.vendor_name],
           ['Tanggal', order.date],
           ['Selesai', order.completed_at],
         ]}
       />
 
+      {canEditOrder && !editingOrder && (
+        <div className="flex gap-2">
+          <Button
+            size="sm" variant="outline"
+            onClick={() => { setEditProduct(order.product_name ?? ''); setEditingOrder(true) }}
+          >
+            <Pencil className="size-4" /> Ubah Produk
+          </Button>
+          {canDeleteOrder && (
+            <Button size="sm" variant="destructive" disabled={busy} onClick={removeOrder}>
+              <Trash2 className="size-4" /> Hapus Order
+            </Button>
+          )}
+        </div>
+      )}
+
       <div>
         <div className="mb-2 text-sm font-medium">Tahapan proses</div>
         <div className="space-y-2">
           {(order.subs ?? []).map((s) => (
-            <div key={s.id} className="flex items-center justify-between rounded-lg border p-3 text-sm">
-              <span>
-                <span className="font-medium">{s.sub_no}</span> · {s.process ?? '—'}
-                {s.serial_no ? <span className="ml-1 font-mono text-xs text-muted-foreground">{s.serial_no}</span> : null}
-              </span>
-              <div className="flex items-center gap-2">
-                <RequestStatusBadge status={s.status} />
-                {s.status !== 'COMPLETED' && hasPermission('manufacturing.complete') && (
-                  <Button size="sm" disabled={busy} onClick={() => completeSub(s.id)}>
-                    Selesai
-                  </Button>
+            <div key={s.id} className="rounded-lg border p-3 text-sm">
+              <div className="flex items-center justify-between">
+                {editingSub === s.id ? (
+                  <div className="flex flex-1 items-center gap-2">
+                    <Input className="h-8" value={editProcess} onChange={(e) => setEditProcess(e.target.value)} />
+                    <Button size="sm" disabled={busy} onClick={() => saveSub(s.id)}>Simpan</Button>
+                    <Button size="sm" variant="outline" onClick={() => setEditingSub(null)}>Batal</Button>
+                  </div>
+                ) : (
+                  <span>
+                    <span className="font-medium">{s.sub_no}</span> · {s.process ?? '—'}
+                    {s.serial_no ? <span className="ml-1 font-mono text-xs text-muted-foreground">{s.serial_no}</span> : null}
+                  </span>
                 )}
+                <div className="flex items-center gap-2">
+                  <RequestStatusBadge status={s.status} />
+                </div>
               </div>
+              {s.status !== 'COMPLETED' && editingSub !== s.id && (
+                <div className="mt-2 flex gap-2">
+                  {hasPermission('manufacturing.update') && (
+                    <>
+                      <Button
+                        size="sm" variant="outline"
+                        onClick={() => { setEditProcess(s.process ?? ''); setEditingSub(s.id) }}
+                      >
+                        <Pencil className="size-4" /> Ubah
+                      </Button>
+                      <Button size="sm" variant="destructive" disabled={busy} onClick={() => removeSub(s.id)}>
+                        <Trash2 className="size-4" /> Hapus
+                      </Button>
+                    </>
+                  )}
+                  {hasPermission('manufacturing.complete') && (
+                    <Button size="sm" disabled={busy} onClick={() => completeSub(s.id)}>
+                      Selesai
+                    </Button>
+                  )}
+                </div>
+              )}
             </div>
           ))}
           {(order.subs?.length ?? 0) === 0 && <p className="text-sm text-muted-foreground">Belum ada tahapan.</p>}

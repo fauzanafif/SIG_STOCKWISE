@@ -1,7 +1,7 @@
 import { useState } from 'react'
-import { Recycle } from 'lucide-react'
+import { Pencil, Recycle, Trash2 } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
-import { useTrackingAction, useTrackingCreate, useTrackingItem, type UsedReturnRow } from '@/features/tracking/api'
+import { useTrackingAction, useTrackingCreate, useTrackingDelete, useTrackingItem, useTrackingUpdate, type UsedReturnRow } from '@/features/tracking/api'
 import { useAuth } from '@/auth/AuthContext'
 import { apiErrorMessage } from '@/lib/api'
 import { ItemPicker } from '@/components/ItemPicker'
@@ -124,14 +124,119 @@ function CreateForm({ onDone }: { onDone: () => void }) {
   )
 }
 
+function EditForm({ ur, onDone }: { ur: UsedReturnRow; onDone: () => void }) {
+  const update = useTrackingUpdate<UsedReturnRow>('used-returns', ur.id)
+  const [npbgRef, setNpbgRef] = useState(ur.npbg_ref ?? '')
+  const [note, setNote] = useState(ur.note ?? '')
+  const [lines, setLines] = useState<Line[]>(
+    (ur.items ?? []).map((l) => ({
+      key: crypto.randomUUID(),
+      item_id: undefined,
+      code: l.item_code ?? undefined,
+      description: l.description ?? l.component_type ?? '',
+      qty: l.qty,
+      condition: l.condition,
+      into_stock: l.into_stock,
+    })),
+  )
+  const [err, setErr] = useState<string | null>(null)
+
+  return (
+    <div className="space-y-3 rounded-lg border bg-muted/30 p-3">
+      <div>
+        <Label>No. NPBG asal</Label>
+        <Input className="mt-1" value={npbgRef} onChange={(e) => setNpbgRef(e.target.value)} />
+      </div>
+      <div>
+        <Label>Catatan</Label>
+        <Input className="mt-1" value={note} onChange={(e) => setNote(e.target.value)} />
+      </div>
+      {lines.map((l) => (
+        <div key={l.key} className="space-y-2 rounded-md border p-2 text-sm">
+          <span>
+            <span className="font-mono text-xs text-muted-foreground">{l.code}</span> {l.description}
+          </span>
+          <div className="flex flex-wrap items-center gap-2">
+            <Input
+              type="number"
+              step="any"
+              className="h-8 w-24"
+              value={l.qty}
+              onChange={(e) => setLines((ls) => ls.map((x) => (x.key === l.key ? { ...x, qty: Number(e.target.value) } : x)))}
+            />
+            <Select
+              className="h-8 w-36"
+              value={l.condition}
+              onChange={(e) => setLines((ls) => ls.map((x) => (x.key === l.key ? { ...x, condition: e.target.value } : x)))}
+            >
+              <option value="REUSABLE">Reusable</option>
+              <option value="USED">Used</option>
+              <option value="DAMAGED">Damaged</option>
+              <option value="SCRAP">Scrap</option>
+            </Select>
+            <label className="flex items-center gap-1 text-xs">
+              <input
+                type="checkbox"
+                checked={l.into_stock}
+                onChange={(e) => setLines((ls) => ls.map((x) => (x.key === l.key ? { ...x, into_stock: e.target.checked } : x)))}
+              />
+              masuk stok
+            </label>
+          </div>
+        </div>
+      ))}
+      {err && <p className="text-sm text-destructive">{err}</p>}
+      <div className="flex justify-end gap-2">
+        <Button variant="outline" size="sm" onClick={onDone}>
+          Batal
+        </Button>
+        <Button
+          size="sm"
+          disabled={update.isPending}
+          onClick={() =>
+            update.mutate(
+              {
+                npbg_ref_raw: npbgRef || undefined,
+                note: note || undefined,
+                items: lines.map((l) => ({ qty: l.qty, condition: l.condition, into_stock: l.into_stock })),
+              },
+              { onSuccess: onDone, onError: (e) => setErr(apiErrorMessage(e)) },
+            )
+          }
+        >
+          Simpan
+        </Button>
+      </div>
+    </div>
+  )
+}
+
 function Detail({ id, onDone }: { id: number; onDone: () => void }) {
   const qc = useQueryClient()
   const { hasPermission } = useAuth()
-  const { data: ur, isLoading } = useTrackingItem<UsedReturnRow>('used-returns', id)
+  const { data: ur, isLoading, refetch } = useTrackingItem<UsedReturnRow>('used-returns', id)
   const action = useTrackingAction<UsedReturnRow>('used-returns', id)
+  const del = useTrackingDelete('used-returns')
   const [err, setErr] = useState<string | null>(null)
+  const [editing, setEditing] = useState(false)
 
   if (isLoading || !ur) return <p className="text-muted-foreground">Memuat…</p>
+
+  if (editing)
+    return (
+      <EditForm
+        ur={ur}
+        onDone={() => {
+          setEditing(false)
+          refetch()
+        }}
+      />
+    )
+
+  function remove() {
+    if (!window.confirm(`Hapus pengembalian ${ur!.number}?`)) return
+    del.mutate(id, { onSuccess: onDone, onError: (e) => setErr(apiErrorMessage(e)) })
+  }
 
   return (
     <div className="space-y-4">
@@ -155,6 +260,16 @@ function Detail({ id, onDone }: { id: number; onDone: () => void }) {
         rows={ur.items ?? []}
         rowKey={(l) => l.id}
       />
+      {ur.status === 'PENDING' && hasPermission('used_return.update') && (
+        <div className="flex gap-2">
+          <Button size="sm" variant="outline" onClick={() => setEditing(true)}>
+            <Pencil className="size-4" /> Ubah
+          </Button>
+          <Button size="sm" variant="destructive" onClick={remove} disabled={del.isPending}>
+            <Trash2 className="size-4" /> Hapus
+          </Button>
+        </div>
+      )}
       {ur.status === 'PENDING' && hasPermission('used_return.close') && (
         <Button
           size="sm"

@@ -83,6 +83,23 @@ export function useCreatePpb() {
   })
 }
 
+export function useUpdatePpb(id: number) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (body: { notes?: string; items?: { item_id?: number; description_raw?: string; qty: number; unit_id?: number }[] }) =>
+      (await api.put<{ data: Ppb }>(`/api/ppb/${id}`, body)).data.data,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['ppb'] }),
+  })
+}
+
+export function useDeletePpb() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (id: number) => (await api.delete(`/api/ppb/${id}`)).data,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['ppb'] }),
+  })
+}
+
 // ---------------------------------------------------------------- Purchase Order
 
 export interface PoLine {

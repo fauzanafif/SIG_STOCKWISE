@@ -189,6 +189,9 @@ function Detail({ id, onDone }: { id: number; onDone: () => void }) {
     }
   }
 
+  const canEditOrder = hasPermission('maintenance.update') && ['OPEN', 'ON_GOING'].includes(order.status)
+  const canDeleteOrder = canEditOrder && order.status === 'OPEN' && (order.subs_count ?? order.subs?.length ?? 0) === 0
+
   return (
     <div className="space-y-4">
       <DetailGrid
@@ -196,11 +199,38 @@ function Detail({ id, onDone }: { id: number; onDone: () => void }) {
           ['No. SPK', <span className="font-mono text-xs">{order.number}</span>],
           ['Status', <RequestStatusBadge status={order.status} />],
           ['Kendaraan', `${order.asset_code ?? ''} ${order.asset_name ?? ''}`],
-          ['Masalah', order.problem_summary],
+          [
+            'Masalah',
+            editingOrder ? (
+              <div className="flex items-center gap-2">
+                <Input className="h-8" value={editSummary} onChange={(e) => setEditSummary(e.target.value)} />
+                <Button size="sm" disabled={busy} onClick={saveOrder}>Simpan</Button>
+                <Button size="sm" variant="outline" onClick={() => setEditingOrder(false)}>Batal</Button>
+              </div>
+            ) : (
+              order.problem_summary
+            ),
+          ],
           ['Tgl lapor', order.report_date],
           ['Selesai', order.completed_at],
         ]}
       />
+
+      {canEditOrder && !editingOrder && (
+        <div className="flex gap-2">
+          <Button
+            size="sm" variant="outline"
+            onClick={() => { setEditSummary(order.problem_summary ?? ''); setEditingOrder(true) }}
+          >
+            <Pencil className="size-4" /> Ubah Masalah
+          </Button>
+          {canDeleteOrder && (
+            <Button size="sm" variant="destructive" disabled={busy} onClick={removeOrder}>
+              <Trash2 className="size-4" /> Hapus SPK
+            </Button>
+          )}
+        </div>
+      )}
 
       <div>
         <div className="mb-2 text-sm font-medium">Sub-pekerjaan</div>
@@ -213,25 +243,48 @@ function Detail({ id, onDone }: { id: number; onDone: () => void }) {
                 </span>
                 <RequestStatusBadge status={s.status} />
               </div>
-              {s.problem_detail && <p className="mt-1 text-muted-foreground">{s.problem_detail}</p>}
+              {editingSub === s.id ? (
+                <div className="mt-2 flex items-center gap-2">
+                  <Input className="h-8" value={editSubDetail} onChange={(e) => setEditSubDetail(e.target.value)} />
+                  <Button size="sm" disabled={busy} onClick={() => saveSub(s.id)}>Simpan</Button>
+                  <Button size="sm" variant="outline" onClick={() => setEditingSub(null)}>Batal</Button>
+                </div>
+              ) : (
+                s.problem_detail && <p className="mt-1 text-muted-foreground">{s.problem_detail}</p>
+              )}
               {s.status === 'COMPLETED' ? (
                 <p className="mt-1 text-xs text-muted-foreground">
                   Selesai {s.finish_date} — {s.result_note}
                 </p>
               ) : (
-                hasPermission('maintenance.complete') && (
-                  <div className="mt-2 flex gap-2">
-                    <Input
-                      placeholder="Catatan hasil…"
-                      className="h-8"
-                      value={noteBySub[s.id] ?? ''}
-                      onChange={(e) => setNoteBySub((m) => ({ ...m, [s.id]: e.target.value }))}
-                    />
-                    <Button size="sm" disabled={busy} onClick={() => completeSub(s.id)}>
-                      Selesai
-                    </Button>
-                  </div>
-                )
+                <>
+                  {hasPermission('maintenance.update') && editingSub !== s.id && (
+                    <div className="mt-2 flex gap-2">
+                      <Button
+                        size="sm" variant="outline"
+                        onClick={() => { setEditSubDetail(s.problem_detail ?? ''); setEditingSub(s.id) }}
+                      >
+                        <Pencil className="size-4" /> Ubah
+                      </Button>
+                      <Button size="sm" variant="destructive" disabled={busy} onClick={() => removeSub(s.id)}>
+                        <Trash2 className="size-4" /> Hapus
+                      </Button>
+                    </div>
+                  )}
+                  {hasPermission('maintenance.complete') && (
+                    <div className="mt-2 flex gap-2">
+                      <Input
+                        placeholder="Catatan hasil…"
+                        className="h-8"
+                        value={noteBySub[s.id] ?? ''}
+                        onChange={(e) => setNoteBySub((m) => ({ ...m, [s.id]: e.target.value }))}
+                      />
+                      <Button size="sm" disabled={busy} onClick={() => completeSub(s.id)}>
+                        Selesai
+                      </Button>
+                    </div>
+                  )}
+                </>
               )}
             </div>
           ))}

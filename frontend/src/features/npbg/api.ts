@@ -66,6 +66,40 @@ export function useNpbgAction(id: number) {
   })
 }
 
+export function useCreateNpbgManual() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (body: {
+      classification?: string
+      type?: string
+      warehouse_id: number
+      requester_name?: string
+      customer_name?: string
+      project_name?: string
+      asset_ref?: string
+      notes?: string
+      items: { item_id: number; qty: number; unit_id?: number; note?: string }[]
+    }) => (await api.post<{ data: Npbg }>('/api/npbg', body)).data.data,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['npbg'] }),
+  })
+}
+
+export function useUpdateNpbg(id: number) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (body: {
+      classification?: string
+      customer_name?: string
+      project_name?: string
+      asset_ref?: string
+      requester_name?: string
+      notes?: string
+      items?: { item_id?: number; description_raw?: string; qty: number; unit_id?: number; note?: string }[]
+    }) => (await api.put<{ data: Npbg }>(`/api/npbg/${id}`, body)).data.data,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['npbg'] }),
+  })
+}
+
 export function useCreateNpbgFromRequest() {
   const qc = useQueryClient()
   return useMutation({
