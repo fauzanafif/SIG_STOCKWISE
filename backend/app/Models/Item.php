@@ -19,6 +19,7 @@ class Item extends Model
         'item_type', 'needs_blueprint', 'lead_time_days', 'default_warehouse_id',
         'default_location_id', 'blueprint_img_path', 'blueprint_pdf_path',
         'blueprint_3d_ref', 'source', 'is_active',
+        'accurate_synced_at', 'accurate_qty_onhand', 'accurate_qty_onorder',
     ];
 
     protected function casts(): array

@@ -5,6 +5,18 @@
 # Personal Windows Downloads folder — accidentally copied in, not part of the app
 /frontend/Downloads/
 
+# Accurate Firebird database — company data, read-only source, never versioned
+*.gdb
+*.GDB
+*.fdb
+*.FDB
+/database/accurate/
+/sync-service/.env
+/sync-service/logs/
+
+# Claude Code local settings (personal, not team-shared)
+.claude/settings.local.json
+
 # OS / editor
 .DS_Store
 Thumbs.db

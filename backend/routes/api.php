@@ -15,7 +15,9 @@ use App\Http\Controllers\Api\PpbController;
 use App\Http\Controllers\Api\PurchaseOrderController;
 use App\Http\Controllers\Api\ReceivingController;
 use App\Http\Controllers\Api\RoleController;
+use App\Http\Controllers\Api\SafetyStockController;
 use App\Http\Controllers\Api\StockOpnameController;
+use App\Http\Controllers\Api\SyncController;
 use App\Http\Controllers\Api\Tracking;
 use App\Http\Controllers\Api\VendorController;
 use Illuminate\Http\Request;
@@ -79,6 +81,28 @@ Route::middleware('auth:sanctum')->group(function (): void {
         ->middleware('permission:item.update')->name('api.items.update');
     Route::delete('/items/{item}', [ItemController::class, 'destroy'])
         ->middleware('permission:item.delete')->name('api.items.destroy');
+
+    Route::middleware('permission:item.safety_stock.view')->group(function () {
+        Route::get('/safety-stocks', [SafetyStockController::class, 'index'])->name('api.safety-stocks.index');
+        Route::get('/safety-stocks/{safetyStock}', [SafetyStockController::class, 'show'])->name('api.safety-stocks.show');
+    });
+    Route::middleware('permission:item.safety_stock.update')->group(function () {
+        Route::post('/safety-stocks', [SafetyStockController::class, 'store'])->name('api.safety-stocks.store');
+        Route::match(['put', 'patch'], '/safety-stocks/{safetyStock}', [SafetyStockController::class, 'update'])
+            ->name('api.safety-stocks.update');
+        Route::delete('/safety-stocks/{safetyStock}', [SafetyStockController::class, 'destroy'])
+            ->name('api.safety-stocks.destroy');
+    });
+    Route::post('/safety-stocks/{safetyStock}/resolve-conflict', [SafetyStockController::class, 'resolveConflict'])
+        ->middleware('permission:item.safety_stock.resolve_conflict')->name('api.safety-stocks.resolve-conflict');
+
+    Route::middleware('permission:sync.accurate.view')->group(function () {
+        Route::get('/sync/status', [SyncController::class, 'status'])->name('api.sync.status');
+        Route::get('/sync/history', [SyncController::class, 'history'])->name('api.sync.history');
+        Route::get('/sync/history/{syncBatch}', [SyncController::class, 'show'])->name('api.sync.history.show');
+    });
+    Route::post('/sync/accurate', [SyncController::class, 'store'])
+        ->middleware('permission:sync.accurate.trigger')->name('api.sync.accurate.store');
 
     Route::middleware('permission:inventory.view')->group(function () {
         Route::get('/inventory', [InventoryController::class, 'index'])->name('api.inventory.index');

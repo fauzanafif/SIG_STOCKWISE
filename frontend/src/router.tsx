@@ -22,6 +22,9 @@ import { RequestCreatePage } from '@/pages/RequestCreatePage'
 import { RequestDetailPage } from '@/pages/RequestDetailPage'
 import { RequestListPage } from '@/pages/RequestListPage'
 import { ReportsPage } from '@/pages/ReportsPage'
+import { SafetyStockPage } from '@/pages/SafetyStockPage'
+import { SyncPage } from '@/pages/SyncPage'
+import { SyncHistoryPage } from '@/pages/SyncHistoryPage'
 import { BorrowPage } from '@/pages/tracking/BorrowPage'
 import { LendPage } from '@/pages/tracking/LendPage'
 import { MaintenancePage } from '@/pages/tracking/MaintenancePage'
@@ -120,6 +123,17 @@ export const router = createBrowserRouter([
           {
             element: <RequirePermission permission="inventory.view_analysis" />,
             children: [{ path: '/inventory/analysis', element: <InventoryAnalysisPage /> }],
+          },
+          {
+            element: <RequirePermission permission="item.safety_stock.view" />,
+            children: [{ path: '/safety-stocks', element: <SafetyStockPage /> }],
+          },
+          {
+            element: <RequirePermission permission="sync.accurate.view" />,
+            children: [
+              { path: '/sync/accurate', element: <SyncPage /> },
+              { path: '/sync/history', element: <SyncHistoryPage /> },
+            ],
           },
           {
             element: (

@@ -4,8 +4,10 @@ import {
   ArrowLeftRight,
   Boxes,
   ClipboardList,
+  CloudCog,
   FileSpreadsheet,
   Handshake,
+  History,
   LayoutDashboard,
   LogOut,
   type LucideIcon,
@@ -14,6 +16,7 @@ import {
   PackageCheck,
   Recycle,
   ScrollText,
+  ShieldCheck,
   ShoppingCart,
   Truck,
   Wrench,
@@ -72,8 +75,16 @@ const NAV: NavGroup[] = [
     label: 'Data & Laporan',
     items: [
       { to: '/items', label: 'Master Barang', icon: Package, permissions: ['item.view'] },
+      { to: '/safety-stocks', label: 'Safety Stock', icon: ShieldCheck, permissions: ['item.safety_stock.view'] },
       { to: '/inventory/analysis', label: 'Analisis Inventory', icon: Boxes, permissions: ['inventory.view_analysis'] },
       { to: '/reports', label: 'Laporan & Export', icon: FileSpreadsheet, permissions: ['report.inventory', 'report.request', 'report.npbg', 'report.ppb', 'report.opname', 'report.stock_movement'] },
+    ],
+  },
+  {
+    label: 'Integrasi Accurate',
+    items: [
+      { to: '/sync/accurate', label: 'Sync Accurate', icon: CloudCog, permissions: ['sync.accurate.view'] },
+      { to: '/sync/history', label: 'Sync History', icon: History, permissions: ['sync.accurate.view'] },
     ],
   },
 ]

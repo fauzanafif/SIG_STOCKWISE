@@ -176,6 +176,10 @@ final class Rbac
             'settings.view' => 'Lihat settings',
             'settings.update' => 'Ubah settings',
         ],
+        'accurate_sync' => [
+            'sync.accurate.view' => 'Lihat status & riwayat sync Accurate',
+            'sync.accurate.trigger' => 'Jalankan sync Accurate',
+        ],
     ];
 
     /**
@@ -229,6 +233,7 @@ final class Rbac
             'item.safety_stock.view', 'item.safety_stock.update', 'item.safety_stock.resolve_conflict',
             'item.lead_time.update', 'item.alias.view', 'item.alias.match',
             'inventory.view', 'inventory.view_analysis', 'inventory.transfer', 'stock_movement.view',
+            'sync.accurate.view', 'sync.accurate.trigger',
             'request.view', 'request.review', 'request.physical_check', 'request.reserve',
             'request.set_need_purchase', 'request.cancel_any',
             'npbg.view', 'npbg.view_own', 'npbg.create', 'npbg.update', 'npbg.cancel',

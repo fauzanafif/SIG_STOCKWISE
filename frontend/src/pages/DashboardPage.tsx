@@ -12,13 +12,39 @@ import {
   XAxis,
   YAxis,
 } from 'recharts'
-import { LayoutDashboard, TrendingUp } from 'lucide-react'
+import { CloudCog, LayoutDashboard, TrendingUp } from 'lucide-react'
 import { useAuth } from '@/auth/AuthContext'
 import { useDashboard, type DashboardCard } from '@/features/dashboard/api'
+import { useSyncStatus } from '@/features/sync/api'
 import { PageHeader } from '@/components/PageHeader'
+import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { RequestStatusBadge } from '@/components/ui/request-badge'
 import { cn } from '@/lib/utils'
+
+function AccurateSyncWidget() {
+  const { hasPermission } = useAuth()
+  const { data: sync } = useSyncStatus()
+  if (!hasPermission('sync.accurate.view')) return null
+
+  const badgeVariant =
+    sync?.status === 'SUCCESS' ? 'success' : sync?.status === 'FAILED' ? 'danger' : sync?.status === 'PARTIAL' ? 'warning' : 'neutral'
+
+  return (
+    <Link to="/sync/accurate" className="card-surface flex items-center justify-between gap-4 p-4 transition hover:border-primary/40">
+      <div className="flex items-center gap-3">
+        <CloudCog className="size-5 text-muted-foreground" />
+        <div>
+          <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Accurate Sync</div>
+          <div className="text-sm">
+            {sync ? `${sync.total_records} barang · ${new Date(sync.started_at).toLocaleString('id-ID')}` : 'Belum pernah sync'}
+          </div>
+        </div>
+      </div>
+      <Badge variant={badgeVariant}>{sync?.status ?? 'N/A'}</Badge>
+    </Link>
+  )
+}
 
 const TONE: Record<DashboardCard['tone'], string> = {
   default: 'text-foreground',
@@ -41,6 +67,8 @@ export function DashboardPage() {
         subtitle={`${user.roles.join(', ')}${user.site ? ` · ${user.site.name}` : ''}`}
         icon={<LayoutDashboard className="size-5" />}
       />
+
+      <AccurateSyncWidget />
 
       {isLoading && <p className="text-muted-foreground">Memuat ringkasan…</p>}
 

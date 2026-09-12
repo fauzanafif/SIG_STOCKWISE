@@ -28,6 +28,7 @@ Dibangun bertahap (lihat `docs/`). Status: **10 fase selesai** — siap uji paka
 | 9 — Dashboard per peran (KPI + chart) | ✅ `docs/phase-9-report.md` |
 | 10 — Laporan & Export (Excel / CSV / PDF) | ✅ `docs/phase-10-report.md` |
 | 11 — Excel Klasik (replika 9 file Excel lama, isi data live) | ✅ `docs/legacy-excel-export.md` |
+| 12 — Accurate Sync Foundation (Firebird → MySQL, items only) | ✅ `docs/sync-architecture.md` |
 
 > `migrate:fresh --seed` menjalankan import Excel penuh (~2–3 menit). Untuk reset cepat tanpa import:
 > `php artisan migrate:fresh && php artisan db:seed --class=SiteSeeder && php artisan db:seed --class=RbacSeeder && php artisan db:seed --class=UserSeeder`
@@ -136,6 +137,18 @@ npx playwright test --ui          # mode interaktif
 ```bash
 cd backend && php artisan migrate:fresh --seed
 ```
+
+## Accurate Sync (Firebird → MySQL)
+
+Menarik data ITEM dari Accurate 5 (Firebird `GUDANGSIG2025.GDB`) ke database Stockwise. Detail
+lengkap: `docs/setup-accurate-connector.md` (setup), `docs/sync-architecture.md` (kenapa desainnya
+begini), `docs/sync-flow.md` (alur), `docs/accurate-database-analysis.md` +
+`docs/accurate-stockwise-mapping.md` (analisis & mapping — dari data nyata, bukan tebakan).
+
+Ringkas: nyalakan Firebird lokal (`fb_inet_server.exe -a`), isi `sync-service/.env` dan
+`backend/.env` (`ACCURATE_*`), lalu `php artisan migrate`. Jalankan dari UI: menu **Sync Accurate**
+di sidebar. Belum ada scheduler otomatis — sync dipicu manual lewat tombol atau `POST
+/api/sync/accurate`.
 
 ## Git
 
