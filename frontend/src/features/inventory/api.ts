@@ -12,6 +12,10 @@ import type {
 export interface ItemFilters {
   search?: string
   category_induk?: string
+  accurate_category_anak_1?: string
+  accurate_category_anak_2?: string
+  accurate_category_anak_3?: string
+  unit_id?: number
   status?: string
   priority_level?: string
   page?: number
@@ -27,6 +31,20 @@ export function useItems(filters: ItemFilters) {
       return data
     },
     placeholderData: keepPreviousData,
+  })
+}
+
+export interface AccurateCategoryBranch {
+  accurate_category_anak_1: string
+  accurate_category_anak_2: string | null
+  accurate_category_anak_3: string | null
+}
+
+/** Kombinasi Kategori Anak 1/2/3 yang benar-benar ada di data (hasil sync Accurate) — dipakai untuk membangun filter bertingkat di Master Barang. Tidak ada Kategori Induk: level itu selalu NULL, tidak ada sumbernya di Accurate. */
+export function useAccurateCategoryOptions() {
+  return useQuery({
+    queryKey: ['items', 'accurate-categories'],
+    queryFn: async () => (await api.get<{ data: AccurateCategoryBranch[] }>('/api/items/accurate-categories')).data.data,
   })
 }
 

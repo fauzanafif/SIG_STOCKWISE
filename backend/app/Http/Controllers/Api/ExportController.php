@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\Inventory;
+use App\Models\Item;
 use App\Models\MaterialRequest;
 use App\Models\Npbg;
 use App\Models\Ppb;
@@ -21,6 +22,7 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
 class ExportController extends Controller
 {
     private const DATASETS = [
+        'items' => 'report.items',
         'inventory' => 'report.inventory',
         'requests' => 'report.request',
         'npbg' => 'report.npbg',
@@ -55,6 +57,32 @@ class ExportController extends Controller
     private function build(string $dataset, Request $request): array
     {
         return match ($dataset) {
+            // Mengikuti filter yang sedang aktif di halaman Master Barang
+            // (search, kategori Accurate anak 1/2/3, UOM, dll) — lihat
+            // Item::filtered(), sumber tunggal yang sama dipakai ItemController::index().
+            'items' => [
+                'Master Barang',
+                [
+                    'Kode Barang', 'Kategori Induk', 'Kategori Anak 1', 'Kategori Anak 2', 'Kategori Anak 3',
+                    'Deskripsi Barang', 'UOM', 'QTY', 'Perlu Blueprint?', 'Nama Alias',
+                    'Letak Gudang', 'Letak Rak', 'Blueprint IMG', 'Blueprint Detail PDF',
+                    'Lead Time', 'Safety Stock', 'MIN PR',
+                ],
+                Item::filtered($request)
+                    ->with('unit:id,code', 'defaultWarehouse:id,code', 'defaultLocation:id,code', 'effectiveSafetyStock:id,item_id,safety_stock,min_pr')
+                    ->orderBy('items.code')
+                    ->lazy()
+                    ->map(fn (Item $i) => [
+                        $i->code,
+                        null, // Kategori Induk — selalu NULL, tidak ada sumbernya di Accurate (§12)
+                        $i->accurate_category_anak_1, $i->accurate_category_anak_2, $i->accurate_category_anak_3,
+                        $i->description, $i->unit?->code, $i->accurate_qty_onhand,
+                        $i->needs_blueprint ? 'Ya' : 'Tidak', 'Tidak',
+                        $i->defaultWarehouse?->code, $i->defaultLocation?->code,
+                        $i->blueprint_img_path, $i->blueprint_pdf_path,
+                        $i->lead_time_days, $i->effectiveSafetyStock?->safety_stock, $i->effectiveSafetyStock?->min_pr,
+                    ]),
+            ],
             'inventory' => [
                 'Laporan Inventory',
                 ['Kode', 'Deskripsi', 'Gudang', 'Aktual', 'Reserved', 'Tersedia', 'Stok Diketahui'],

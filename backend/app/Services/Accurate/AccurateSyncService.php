@@ -31,6 +31,19 @@ class AccurateSyncService
     /** How long a RUNNING batch can go without finishing before it's considered dead (crashed/killed process, not a real lock holder). */
     protected const STALE_RUNNING_MINUTES = 10;
 
+    /**
+     * A real Accurate ITEMNO product code: 3 letters + "." + 4-or-more digits
+     * (e.g. AUT.0001). Anything else (AUT, AUT.01, AUT.01.01, AUT.01.01.01)
+     * is a PARENTITEM category/hierarchy node, not a stockable product —
+     * verified against the real GUDANGSIG2025.GDB data (9,177/9,600 rows
+     * match; the other 423 are category nodes, all with empty UNIT1), see
+     * docs/accurate-database-analysis.md §12.
+     */
+    protected const PRODUCT_ITEMNO_PATTERN = '/^[A-Za-z]{3}\.[0-9]{4,}$/';
+
+    /** Max category levels resolved upward from a product's PARENTITEM (Anak 1/2/3 — see docs/accurate-database-analysis.md §12 on why there's no "Kategori Induk" level in this data). */
+    protected const MAX_CATEGORY_LEVELS = 3;
+
     public function run(?int $userId = null): SyncBatch
     {
         $this->reapStaleRunningBatches();
@@ -155,20 +168,28 @@ class AccurateSyncService
 
         // Preload existing items keyed by code once — avoids an N+1 query per
         // Accurate row (this loop runs over ~9,600 rows).
-        $itemsByCode = Item::select('id', 'code', 'accurate_qty_onhand', 'accurate_qty_onorder', 'accurate_synced_at')
+        $itemsByCode = Item::select(
+            'id', 'code', 'accurate_qty_onhand', 'accurate_qty_onorder', 'accurate_synced_at',
+            'accurate_category_anak_1', 'accurate_category_anak_2', 'accurate_category_anak_3'
+        )
             ->get()
             ->keyBy('code');
 
         $rows = DB::table('accurate_item')
-            ->select('ITEMNO', 'ITEMDESCRIPTION', 'UNIT1', 'SUSPENDED', 'QUANTITY', 'ONORDER')
+            ->select('ITEMNO', 'ITEMDESCRIPTION', 'UNIT1', 'SUSPENDED', 'QUANTITY', 'ONORDER', 'PARENTITEM')
             ->orderBy('ITEMNO')
             ->get();
+
+        // Every row (product AND category node) keyed by ITEMNO — needed to
+        // walk PARENTITEM chains upward and read each ancestor's own
+        // ITEMDESCRIPTION. Built once, reused for all ~9,600 rows below.
+        $nodesByCode = $rows->keyBy('ITEMNO');
 
         foreach ($rows as $row) {
             $counts['total']++;
 
             try {
-                $outcome = $this->syncOneItem($row, $unitsByCode, $itemsByCode);
+                $outcome = $this->syncOneItem($row, $unitsByCode, $itemsByCode, $nodesByCode);
                 $counts[$outcome['bucket']]++;
 
                 SyncLog::create([
@@ -204,20 +225,36 @@ class AccurateSyncService
     protected function syncOneItem(
         object $row,
         \Illuminate\Support\Collection $unitsByCode,
-        \Illuminate\Support\Collection $itemsByCode
+        \Illuminate\Support\Collection $itemsByCode,
+        \Illuminate\Support\Collection $nodesByCode
     ): array {
         $itemno = trim((string) ($row->ITEMNO ?? ''));
         if ($itemno === '') {
             return ['bucket' => 'skipped', 'action' => 'SKIP', 'message' => 'accurate_id (ITEMNO) kosong.'];
         }
 
+        // Category/hierarchy nodes (AUT, AUT.01, AUT.01.01, AUT.01.01.01) are
+        // never products, even if a row happens to carry a UNIT1 — the
+        // pattern match is the authoritative rule per the brief (§3).
+        if (! preg_match(self::PRODUCT_ITEMNO_PATTERN, $itemno)) {
+            return [
+                'bucket' => 'skipped',
+                'action' => 'SKIP',
+                'message' => 'Bukan kode produk (node kategori/hierarki ITEMNO), digunakan hanya untuk resolusi kategori barang lain.',
+            ];
+        }
+
         $existing = $itemsByCode->get($itemno);
         $newQty = (float) ($row->QUANTITY ?? 0);
         $newOnOrder = (float) ($row->ONORDER ?? 0);
+        $category = $this->resolveCategoryHierarchy($row->PARENTITEM ?? null, $nodesByCode);
 
         if ($existing) {
             $unchanged = (float) $existing->accurate_qty_onhand === $newQty
-                && (float) $existing->accurate_qty_onorder === $newOnOrder;
+                && (float) $existing->accurate_qty_onorder === $newOnOrder
+                && $existing->accurate_category_anak_1 === $category['anak_1']
+                && $existing->accurate_category_anak_2 === $category['anak_2']
+                && $existing->accurate_category_anak_3 === $category['anak_3'];
 
             if ($unchanged && $existing->accurate_synced_at !== null) {
                 return ['bucket' => 'skipped', 'action' => 'SKIP', 'message' => 'Tidak ada perubahan.'];
@@ -226,25 +263,34 @@ class AccurateSyncService
             $old = [
                 'accurate_qty_onhand' => $existing->accurate_qty_onhand,
                 'accurate_qty_onorder' => $existing->accurate_qty_onorder,
+                'accurate_category_anak_1' => $existing->accurate_category_anak_1,
+                'accurate_category_anak_2' => $existing->accurate_category_anak_2,
+                'accurate_category_anak_3' => $existing->accurate_category_anak_3,
             ];
 
             $existing->forceFill([
                 'accurate_synced_at' => now(),
                 'accurate_qty_onhand' => $newQty,
                 'accurate_qty_onorder' => $newOnOrder,
+                'accurate_category_anak_1' => $category['anak_1'],
+                'accurate_category_anak_2' => $category['anak_2'],
+                'accurate_category_anak_3' => $category['anak_3'],
             ])->save();
 
             return [
                 'bucket' => 'updated',
                 'action' => 'UPDATE',
-                'message' => "Stok referensi Accurate diperbarui: {$old['accurate_qty_onhand']} -> {$newQty}.",
+                'message' => "Data referensi Accurate diperbarui: qty {$old['accurate_qty_onhand']} -> {$newQty}.",
                 'old_data' => $old,
-                'new_data' => ['accurate_qty_onhand' => $newQty, 'accurate_qty_onorder' => $newOnOrder],
+                'new_data' => [
+                    'accurate_qty_onhand' => $newQty, 'accurate_qty_onorder' => $newOnOrder,
+                ] + $category,
             ];
         }
 
         // No match — only create for real products (has a unit); Accurate's
-        // category/placeholder nodes (PARENTITEM tree) have no UNIT1.
+        // category/placeholder nodes (PARENTITEM tree) have no UNIT1. Kept as
+        // a secondary data-quality guard alongside the regex check above.
         $unit1 = trim((string) ($row->UNIT1 ?? ''));
         if ($unit1 === '') {
             return [
@@ -272,13 +318,55 @@ class AccurateSyncService
             'accurate_synced_at' => now(),
             'accurate_qty_onhand' => $newQty,
             'accurate_qty_onorder' => $newOnOrder,
+            'accurate_category_anak_1' => $category['anak_1'],
+            'accurate_category_anak_2' => $category['anak_2'],
+            'accurate_category_anak_3' => $category['anak_3'],
         ]);
 
         return [
             'bucket' => 'inserted',
             'action' => 'INSERT',
             'message' => 'Barang baru dari Accurate.',
-            'new_data' => ['code' => $created->code, 'description' => $created->description],
+            'new_data' => ['code' => $created->code, 'description' => $created->description] + $category,
+        ];
+    }
+
+    /**
+     * Kategori Anak 1/2/3 = ITEMDESCRIPTION of each real PARENTITEM ancestor,
+     * walked upward from the product's immediate parent (deepest) to the
+     * shallowest real ancestor. There is deliberately no "Kategori Induk"
+     * slot: verified against the real GDB that a bare 0-dot ITEMNO node
+     * (e.g. "AUT") never exists in this company's data, so that level has no
+     * ITEMDESCRIPTION to read — see docs/accurate-database-analysis.md §12.
+     * Chain depth varies per product (1-3 real ancestors are all observed in
+     * the real data), so shallower products simply leave the deeper Anak
+     * slots null — not a bug.
+     *
+     * @return array{anak_1: ?string, anak_2: ?string, anak_3: ?string}
+     */
+    protected function resolveCategoryHierarchy(?string $parentItem, \Illuminate\Support\Collection $nodesByCode): array
+    {
+        $chain = [];
+        $current = $parentItem !== null ? trim($parentItem) : '';
+
+        while ($current !== '' && count($chain) < self::MAX_CATEGORY_LEVELS) {
+            $node = $nodesByCode->get($current);
+            if (! $node) {
+                break; // dangling PARENTITEM reference — stop rather than guess
+            }
+
+            $chain[] = trim((string) ($node->ITEMDESCRIPTION ?? '')) ?: null;
+            $current = trim((string) ($node->PARENTITEM ?? ''));
+        }
+
+        // $chain is deepest-first (immediate parent first); reverse so the
+        // shallowest real ancestor becomes Anak 1.
+        $chain = array_reverse($chain);
+
+        return [
+            'anak_1' => $chain[0] ?? null,
+            'anak_2' => $chain[1] ?? null,
+            'anak_3' => $chain[2] ?? null,
         ];
     }
 }

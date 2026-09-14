@@ -15,6 +15,10 @@ interface DataTableProps<T> {
   isLoading?: boolean
   emptyText?: string
   onRowClick?: (row: T) => void
+  /** Extra classes on the scroll container — e.g. `max-h-[65vh] overflow-y-auto` to cap a tall table instead of letting the whole page grow. */
+  containerClassName?: string
+  /** Keeps the header row pinned while the body scrolls (use together with a height-capped containerClassName). */
+  stickyHeader?: boolean
 }
 
 export function DataTable<T>({
@@ -24,11 +28,13 @@ export function DataTable<T>({
   isLoading,
   emptyText = 'Tidak ada data.',
   onRowClick,
+  containerClassName,
+  stickyHeader,
 }: DataTableProps<T>) {
   return (
-    <div className="overflow-x-auto rounded-lg border">
+    <div className={cn('overflow-x-auto rounded-lg border', containerClassName)}>
       <table className="w-full text-sm">
-        <thead className="bg-muted/50 text-left">
+        <thead className={cn('text-left', stickyHeader ? 'sticky top-0 z-10 bg-muted' : 'bg-muted/50')}>
           <tr>
             {columns.map((c) => (
               <th key={c.key} className={cn('px-3 py-2 font-medium text-muted-foreground', c.className)}>

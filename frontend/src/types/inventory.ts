@@ -30,6 +30,10 @@ export interface Item {
   needs_blueprint: boolean
   lead_time_days: number | null
   is_active: boolean
+  source?: string | null
+  accurate_synced_at?: string | null
+  accurate_qty_onhand?: number | null
+  accurate_qty_onorder?: number | null
   category: { id: number; name: string; path: string } | null
   category_breakdown?: { induk: string | null; anak_1: string | null; anak_2: string | null; anak_3: string | null } | null
   unit: { id: number; code: string; name: string } | null
@@ -43,6 +47,7 @@ export interface Item {
   alias_name?: string
   aliases?: string[]
   safety_stock?: number | null
+  min_pr?: number | null
   analysis?: ItemAnalysis | null
 }
 

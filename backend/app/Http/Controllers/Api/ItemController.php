@@ -17,47 +17,10 @@ class ItemController extends Controller
     {
         $perPage = min((int) $request->integer('per_page', 25), 100);
 
-        $query = Item::query()
-            ->with([
-                'category:id,name,path', 'unit:id,code,name', 'snapshot', 'effectiveSafetyStock',
-                'defaultWarehouse:id,code,name', 'defaultLocation:id,code',
-            ])
-            ->leftJoin('categories', 'categories.id', '=', 'items.category_id')
-            ->leftJoin('inventory_snapshots as snap', function ($join) {
-                $join->on('snap.item_id', '=', 'items.id')->whereNull('snap.warehouse_id');
-            })
-            ->select('items.*');
-
-        // text
-        if ($search = $request->string('search')->trim()->value()) {
-            $query->where(function ($q) use ($search) {
-                $q->where('items.code', 'like', "%{$search}%")
-                    ->orWhere('items.description', 'like', "%{$search}%");
-            });
-        }
-        $request->whenFilled('code', fn ($v) => $query->where('items.code', 'like', "%{$v}%"));
-        $request->whenFilled('description', fn ($v) => $query->where('items.description', 'like', "%{$v}%"));
-
-        // category (by name at any level, via path)
-        $request->whenFilled('category_induk', fn ($v) => $query->where('categories.path', 'like', "{$v}%"));
-        foreach (['category_anak_1', 'category_anak_2', 'category_anak_3', 'category'] as $key) {
-            $request->whenFilled($key, fn ($v) => $query->where('categories.path', 'like', "%{$v}%"));
-        }
-        $request->whenFilled('category_id', fn ($v) => $query->where('items.category_id', $v));
-
-        // simple attrs
-        $request->whenFilled('unit_id', fn ($v) => $query->where('items.unit_id', $v));
-        $request->whenFilled('warehouse_id', fn ($v) => $query->where('items.default_warehouse_id', $v));
-        $request->whenFilled('needs_blueprint', fn ($v) => $query->where('items.needs_blueprint', filter_var($v, FILTER_VALIDATE_BOOL)));
-        $request->whenFilled('is_active', fn ($v) => $query->where('items.is_active', filter_var($v, FILTER_VALIDATE_BOOL)));
-
-        // analysis-derived
-        $request->whenFilled('status', fn ($v) => $query->where('snap.status', strtoupper((string) $v)));
-        $request->whenFilled('priority_level', fn ($v) => $query->where('snap.priority_level', strtoupper((string) $v)));
-        $request->whenFilled('lead_time_min', fn ($v) => $query->where('items.lead_time_days', '>=', (int) $v));
-        $request->whenFilled('lead_time_max', fn ($v) => $query->where('items.lead_time_days', '<=', (int) $v));
-        $request->whenFilled('selisih_min', fn ($v) => $query->where('snap.selisih', '>=', (float) $v));
-        $request->whenFilled('selisih_max', fn ($v) => $query->where('snap.selisih', '<=', (float) $v));
+        $query = Item::filtered($request)->with([
+            'category:id,name,path', 'unit:id,code,name', 'snapshot', 'effectiveSafetyStock',
+            'defaultWarehouse:id,code,name', 'defaultLocation:id,code',
+        ]);
 
         // sorting
         $sort = $request->string('sort', 'items.code')->value();
@@ -72,6 +35,28 @@ class ItemController extends Controller
         $query->orderBy($sortable[$column] ?? 'items.code', $direction);
 
         return ItemResource::collection($query->paginate($perPage)->withQueryString());
+    }
+
+    /**
+     * Distinct Kategori Anak 1/2/3 combinations actually present (from
+     * Accurate sync) — one row per real branch, e.g.
+     * {anak_1: "AUTOMOTIVE WHEELS & TIRES", anak_2: "BAN LUAR (TIRES)", anak_3: "BAN LUAR BENANG (NYLON TIRES)"}.
+     * The frontend builds a 3-level cascading filter from this flat list
+     * client-side (same approach as CategoryPicker.tsx for the Excel tree).
+     * No "induk" combination: that level is always NULL, see index() above.
+     */
+    public function accurateCategoryOptions(): JsonResponse
+    {
+        $options = Item::query()
+            ->whereNotNull('accurate_category_anak_1')
+            ->select('accurate_category_anak_1', 'accurate_category_anak_2', 'accurate_category_anak_3')
+            ->distinct()
+            ->orderBy('accurate_category_anak_1')
+            ->orderBy('accurate_category_anak_2')
+            ->orderBy('accurate_category_anak_3')
+            ->get();
+
+        return response()->json(['data' => $options]);
     }
 
     /** Lightweight search for the item picker (requests / PPB). */

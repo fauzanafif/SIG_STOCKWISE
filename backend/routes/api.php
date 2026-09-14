@@ -63,7 +63,7 @@ Route::middleware('auth:sanctum')->group(function (): void {
         Route::get('/categories/tree', [MasterDataController::class, 'categoryTree'])->name('api.categories.tree');
     });
     Route::get('/units', [MasterDataController::class, 'units'])
-        ->middleware('permission:master.unit.view|request.create|ppb.create')->name('api.units');
+        ->middleware('permission:master.unit.view|request.create|ppb.create|item.view')->name('api.units');
     Route::get('/warehouses', [MasterDataController::class, 'warehouses'])
         ->middleware('permission:master.warehouse.view')->name('api.warehouses');
     Route::get('/warehouse-locations', [MasterDataController::class, 'warehouseLocations'])
@@ -73,6 +73,7 @@ Route::middleware('auth:sanctum')->group(function (): void {
         ->middleware('permission:item.lookup|item.view')->name('api.items.lookup');
     Route::middleware('permission:item.view')->group(function () {
         Route::get('/items', [ItemController::class, 'index'])->name('api.items.index');
+        Route::get('/items/accurate-categories', [ItemController::class, 'accurateCategoryOptions'])->name('api.items.accurate-categories');
         Route::get('/items/{item}', [ItemController::class, 'show'])->name('api.items.show');
     });
     Route::post('/items', [ItemController::class, 'store'])

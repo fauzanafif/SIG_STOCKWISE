@@ -48,6 +48,7 @@ class AccurateSyncTest extends TestCase
                 $table->boolean('SUSPENDED')->nullable();
                 $table->decimal('QUANTITY', 14, 2)->nullable();
                 $table->decimal('ONORDER', 14, 2)->nullable();
+                $table->string('PARENTITEM')->nullable();
             });
         }
 
@@ -58,7 +59,7 @@ class AccurateSyncTest extends TestCase
     {
         DB::table('accurate_item')->insert(array_merge([
             'ITEMNO' => null, 'ITEMDESCRIPTION' => null, 'UNIT1' => null,
-            'SUSPENDED' => false, 'QUANTITY' => 0, 'ONORDER' => 0,
+            'SUSPENDED' => false, 'QUANTITY' => 0, 'ONORDER' => 0, 'PARENTITEM' => null,
         ], $row));
     }
 
@@ -74,7 +75,7 @@ class AccurateSyncTest extends TestCase
     {
         Unit::factory()->create(['code' => 'PCS']);
         $this->seedAccurateItem([
-            'ITEMNO' => 'NEW-001', 'ITEMDESCRIPTION' => 'Oxygen Tank', 'UNIT1' => 'PCS',
+            'ITEMNO' => 'NEW.0001', 'ITEMDESCRIPTION' => 'Oxygen Tank', 'UNIT1' => 'PCS',
             'QUANTITY' => 100, 'ONORDER' => 0,
         ]);
 
@@ -86,13 +87,13 @@ class AccurateSyncTest extends TestCase
             ->assertJsonPath('data.updated_records', 0)
             ->assertJsonPath('data.error_records', 0);
 
-        $item = Item::where('code', 'NEW-001')->firstOrFail();
+        $item = Item::where('code', 'NEW.0001')->firstOrFail();
         $this->assertSame('Oxygen Tank', $item->description);
         $this->assertSame('accurate', $item->source);
         $this->assertEquals(100, $item->accurate_qty_onhand);
         $this->assertNotNull($item->accurate_synced_at);
 
-        $log = DB::table('sync_logs')->where('source_id', 'NEW-001')->first();
+        $log = DB::table('sync_logs')->where('source_id', 'NEW.0001')->first();
         $this->assertSame('INSERT', $log->action);
         $this->assertSame('SUCCESS', $log->status);
     }
@@ -103,29 +104,29 @@ class AccurateSyncTest extends TestCase
         // again must UPDATE the one row, never create a second one.
         Unit::factory()->create(['code' => 'PCS']);
         $this->seedAccurateItem([
-            'ITEMNO' => 'BRG001', 'ITEMDESCRIPTION' => 'OXYGEN', 'UNIT1' => 'PCS', 'QUANTITY' => 100,
+            'ITEMNO' => 'BRG.0001', 'ITEMDESCRIPTION' => 'OXYGEN', 'UNIT1' => 'PCS', 'QUANTITY' => 100,
         ]);
 
         $this->actingAsRole('admin_gudang');
         $this->postJson('/api/sync/accurate')->assertJsonPath('data.inserted_records', 1);
 
-        $this->assertSame(1, Item::where('code', 'BRG001')->count());
-        $this->assertEquals(100, Item::where('code', 'BRG001')->value('accurate_qty_onhand'));
+        $this->assertSame(1, Item::where('code', 'BRG.0001')->count());
+        $this->assertEquals(100, Item::where('code', 'BRG.0001')->value('accurate_qty_onhand'));
 
-        DB::table('accurate_item')->where('ITEMNO', 'BRG001')->update(['QUANTITY' => 150]);
+        DB::table('accurate_item')->where('ITEMNO', 'BRG.0001')->update(['QUANTITY' => 150]);
 
         $res = $this->postJson('/api/sync/accurate')->assertCreated();
         $res->assertJsonPath('data.updated_records', 1)
             ->assertJsonPath('data.inserted_records', 0);
 
-        $this->assertSame(1, Item::where('code', 'BRG001')->count(), 'sync must not create a duplicate row');
-        $this->assertEquals(150, Item::where('code', 'BRG001')->value('accurate_qty_onhand'));
+        $this->assertSame(1, Item::where('code', 'BRG.0001')->count(), 'sync must not create a duplicate row');
+        $this->assertEquals(150, Item::where('code', 'BRG.0001')->value('accurate_qty_onhand'));
     }
 
     public function test_unchanged_item_is_skipped_on_repeat_sync(): void
     {
         Unit::factory()->create(['code' => 'PCS']);
-        $this->seedAccurateItem(['ITEMNO' => 'BRG002', 'ITEMDESCRIPTION' => 'NITROGEN', 'UNIT1' => 'PCS', 'QUANTITY' => 50]);
+        $this->seedAccurateItem(['ITEMNO' => 'BRG.0002', 'ITEMDESCRIPTION' => 'NITROGEN', 'UNIT1' => 'PCS', 'QUANTITY' => 50]);
 
         $this->actingAsRole('admin_gudang');
         $this->postJson('/api/sync/accurate')->assertJsonPath('data.inserted_records', 1);
@@ -148,6 +149,80 @@ class AccurateSyncTest extends TestCase
         $res->assertJsonPath('data.skipped_records', 1)
             ->assertJsonPath('data.inserted_records', 0);
         $this->assertSame(0, Item::where('code', 'CAT.01')->count());
+    }
+
+    public function test_product_pattern_is_authoritative_even_when_unit_is_present(): void
+    {
+        // §3 of the brief: ITEMNO shape (3 letters + "." + 4+ digits) is the
+        // authoritative product/category test — a category-shaped code must
+        // never become a Master Barang row even if it happens to carry a
+        // UNIT1 (a real data-quality anomaly, not something to trust blindly).
+        Unit::factory()->create(['code' => 'PCS']);
+        $this->seedAccurateItem(['ITEMNO' => 'ZZZ.01', 'ITEMDESCRIPTION' => 'Anomali', 'UNIT1' => 'PCS', 'QUANTITY' => 5]);
+
+        $this->actingAsRole('admin_gudang');
+        $res = $this->postJson('/api/sync/accurate')->assertCreated();
+
+        $res->assertJsonPath('data.skipped_records', 1)
+            ->assertJsonPath('data.inserted_records', 0);
+        $this->assertSame(0, Item::where('code', 'ZZZ.01')->count());
+    }
+
+    public function test_category_hierarchy_resolved_via_itemdescription_of_parentitem_chain(): void
+    {
+        // §4-5 of the brief's own worked example, reproduced with fixture
+        // data: category nodes' ITEMDESCRIPTION (not their ITEMNO code)
+        // becomes Kategori Anak 1/2/3. No "Kategori Induk" is asserted here —
+        // verified against the real GDB that the 0-dot root node never
+        // exists in this company's data, see docs/accurate-database-analysis.md §12.
+        Unit::factory()->create(['code' => 'PCS']);
+        $this->seedAccurateItem(['ITEMNO' => 'AAA.01', 'ITEMDESCRIPTION' => 'AUTOMOTIVE WHEELS & TIRES', 'PARENTITEM' => null]);
+        $this->seedAccurateItem(['ITEMNO' => 'AAA.01.01', 'ITEMDESCRIPTION' => 'BAN LUAR (TIRES)', 'PARENTITEM' => 'AAA.01']);
+        $this->seedAccurateItem(['ITEMNO' => 'AAA.01.01.01', 'ITEMDESCRIPTION' => 'BAN LUAR BENANG (NYLON TIRES)', 'PARENTITEM' => 'AAA.01.01']);
+        $this->seedAccurateItem([
+            'ITEMNO' => 'AAA.0001', 'ITEMDESCRIPTION' => 'BOLT M10 X 50', 'UNIT1' => 'PCS',
+            'QUANTITY' => 125, 'PARENTITEM' => 'AAA.01.01.01',
+        ]);
+
+        $this->actingAsRole('admin_gudang');
+        $res = $this->postJson('/api/sync/accurate')->assertCreated();
+
+        // 4 rows read, only 1 is a real product; the 3 category nodes are
+        // skipped as Master Barang rows but still consulted for the hierarchy.
+        $res->assertJsonPath('data.total_records', 4)
+            ->assertJsonPath('data.inserted_records', 1)
+            ->assertJsonPath('data.skipped_records', 3);
+
+        $item = Item::where('code', 'AAA.0001')->firstOrFail();
+        $this->assertSame('AUTOMOTIVE WHEELS & TIRES', $item->accurate_category_anak_1);
+        $this->assertSame('BAN LUAR (TIRES)', $item->accurate_category_anak_2);
+        $this->assertSame('BAN LUAR BENANG (NYLON TIRES)', $item->accurate_category_anak_3);
+        $this->assertEquals(125, $item->accurate_qty_onhand);
+
+        $this->getJson("/api/items/{$item->id}")->assertOk()
+            ->assertJsonPath('data.category_breakdown.induk', null)
+            ->assertJsonPath('data.category_breakdown.anak_1', 'AUTOMOTIVE WHEELS & TIRES')
+            ->assertJsonPath('data.category_breakdown.anak_2', 'BAN LUAR (TIRES)')
+            ->assertJsonPath('data.category_breakdown.anak_3', 'BAN LUAR BENANG (NYLON TIRES)');
+    }
+
+    public function test_category_hierarchy_shallower_than_three_levels_leaves_deeper_slots_null(): void
+    {
+        // Real GDB finding: chain depth varies per product (1, 2, or 3 real
+        // ancestors) — a product one level deep must not have Anak 2/3 guessed.
+        Unit::factory()->create(['code' => 'PCS']);
+        $this->seedAccurateItem(['ITEMNO' => 'BBB.01', 'ITEMDESCRIPTION' => 'ASSET TOOLS', 'PARENTITEM' => null]);
+        $this->seedAccurateItem([
+            'ITEMNO' => 'BBB.0001', 'ITEMDESCRIPTION' => 'OBENG PLUS', 'UNIT1' => 'PCS', 'PARENTITEM' => 'BBB.01',
+        ]);
+
+        $this->actingAsRole('admin_gudang');
+        $this->postJson('/api/sync/accurate')->assertJsonPath('data.inserted_records', 1);
+
+        $item = Item::where('code', 'BBB.0001')->firstOrFail();
+        $this->assertSame('ASSET TOOLS', $item->accurate_category_anak_1);
+        $this->assertNull($item->accurate_category_anak_2);
+        $this->assertNull($item->accurate_category_anak_3);
     }
 
     public function test_row_with_empty_itemno_is_skipped_safely(): void
@@ -176,7 +251,7 @@ class AccurateSyncTest extends TestCase
     public function test_sync_history_and_status_endpoints(): void
     {
         Unit::factory()->create(['code' => 'PCS']);
-        $this->seedAccurateItem(['ITEMNO' => 'H-001', 'ITEMDESCRIPTION' => 'Test', 'UNIT1' => 'PCS']);
+        $this->seedAccurateItem(['ITEMNO' => 'HHH.0001', 'ITEMDESCRIPTION' => 'Test', 'UNIT1' => 'PCS']);
 
         $this->actingAsRole('admin_gudang');
         $this->postJson('/api/sync/accurate')->assertCreated();

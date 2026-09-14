@@ -63,6 +63,65 @@ class ItemApiTest extends TestCase
         $this->getJson('/api/items?code=ATK')->assertOk()->assertJsonPath('data.0.code', 'ATK.001');
     }
 
+    public function test_filter_by_accurate_category_and_unit(): void
+    {
+        $pcs = Unit::factory()->create(['code' => 'PCS']);
+        $box = Unit::factory()->create(['code' => 'BOX']);
+        Item::factory()->create(['code' => 'AUT.0001', 'accurate_category_anak_1' => 'AUTOMOTIVE WHEELS & TIRES', 'unit_id' => $pcs->id]);
+        Item::factory()->create(['code' => 'AST.0001', 'accurate_category_anak_1' => 'ASSETS', 'unit_id' => $box->id]);
+
+        $this->actingAsRole('admin_gudang');
+
+        $this->getJson('/api/items?accurate_category_anak_1='.urlencode('AUTOMOTIVE WHEELS & TIRES'))
+            ->assertOk()->assertJsonCount(1, 'data')->assertJsonPath('data.0.code', 'AUT.0001');
+        $this->getJson("/api/items?unit_id={$box->id}")
+            ->assertOk()->assertJsonCount(1, 'data')->assertJsonPath('data.0.code', 'AST.0001');
+    }
+
+    public function test_accurate_category_options_lists_distinct_branches_only(): void
+    {
+        Item::factory()->create([
+            'code' => 'AUT.0001', 'accurate_category_anak_1' => 'AUTOMOTIVE WHEELS & TIRES',
+            'accurate_category_anak_2' => 'BAN LUAR (TIRES)', 'accurate_category_anak_3' => 'BAN LUAR BENANG (NYLON TIRES)',
+        ]);
+        Item::factory()->create([
+            // Duplicate branch — must appear only once in the result.
+            'code' => 'AUT.0002', 'accurate_category_anak_1' => 'AUTOMOTIVE WHEELS & TIRES',
+            'accurate_category_anak_2' => 'BAN LUAR (TIRES)', 'accurate_category_anak_3' => 'BAN LUAR BENANG (NYLON TIRES)',
+        ]);
+        Item::factory()->create(['code' => 'AST.0001', 'accurate_category_anak_1' => 'ASSETS']);
+        Item::factory()->create(['code' => 'NOC.0001', 'accurate_category_anak_1' => null]);
+
+        $this->actingAsRole('admin_gudang');
+
+        $res = $this->getJson('/api/items/accurate-categories')->assertOk();
+        $res->assertJsonCount(2, 'data')
+            ->assertJsonPath('data.0.accurate_category_anak_1', 'ASSETS')
+            ->assertJsonPath('data.0.accurate_category_anak_2', null)
+            ->assertJsonPath('data.1.accurate_category_anak_1', 'AUTOMOTIVE WHEELS & TIRES')
+            ->assertJsonPath('data.1.accurate_category_anak_2', 'BAN LUAR (TIRES)')
+            ->assertJsonPath('data.1.accurate_category_anak_3', 'BAN LUAR BENANG (NYLON TIRES)');
+    }
+
+    public function test_filter_by_accurate_category_anak_2_and_anak_3(): void
+    {
+        Item::factory()->create([
+            'code' => 'AUT.0001', 'accurate_category_anak_1' => 'AUTOMOTIVE WHEELS & TIRES',
+            'accurate_category_anak_2' => 'BAN LUAR (TIRES)', 'accurate_category_anak_3' => 'BAN LUAR BENANG (NYLON TIRES)',
+        ]);
+        Item::factory()->create([
+            'code' => 'AUT.0080', 'accurate_category_anak_1' => 'AUTOMOTIVE WHEELS & TIRES',
+            'accurate_category_anak_2' => 'BAN DALAM (TUBES)', 'accurate_category_anak_3' => null,
+        ]);
+
+        $this->actingAsRole('admin_gudang');
+
+        $this->getJson('/api/items?'.http_build_query(['accurate_category_anak_2' => 'BAN DALAM (TUBES)']))
+            ->assertOk()->assertJsonCount(1, 'data')->assertJsonPath('data.0.code', 'AUT.0080');
+        $this->getJson('/api/items?'.http_build_query(['accurate_category_anak_3' => 'BAN LUAR BENANG (NYLON TIRES)']))
+            ->assertOk()->assertJsonCount(1, 'data')->assertJsonPath('data.0.code', 'AUT.0001');
+    }
+
     public function test_show_returns_detail_with_relations(): void
     {
         $item = Item::factory()->safetyStock(10)->withStock(25)->create();
@@ -132,8 +191,13 @@ class ItemApiTest extends TestCase
         $this->actingAsRole('admin_gudang');
         $res = $this->getJson("/api/items/{$item->id}")->assertOk();
 
-        $res->assertJsonPath('data.category_breakdown.induk', 'Assets')
-            ->assertJsonPath('data.category_breakdown.anak_1', 'ASSET')
+        // category_breakdown sekarang bersumber dari accurate_category_anak_*
+        // (diisi oleh AccurateSyncService dari ITEMDESCRIPTION rantai
+        // PARENTITEM), bukan dari tree kategori Excel (`categories`) lagi —
+        // item ini dibuat via factory tanpa data Accurate sama sekali, jadi
+        // breakdown-nya kosong semua meski `category_id` (Excel) tetap terisi.
+        $res->assertJsonPath('data.category_breakdown.induk', null)
+            ->assertJsonPath('data.category_breakdown.anak_1', null)
             ->assertJsonPath('data.category_breakdown.anak_2', null)
             ->assertJsonPath('data.needs_blueprint', true)
             ->assertJsonPath('data.default_warehouse.code', 'GUDANG 1')

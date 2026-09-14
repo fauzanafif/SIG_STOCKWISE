@@ -19,20 +19,28 @@ class ItemResource extends JsonResource
             'needs_blueprint' => $this->needs_blueprint,
             'lead_time_days' => $this->lead_time_days,
             'is_active' => $this->is_active,
+            'source' => $this->source,
+            'accurate_synced_at' => $this->accurate_synced_at,
+            'accurate_qty_onhand' => $this->accurate_qty_onhand,
+            'accurate_qty_onorder' => $this->accurate_qty_onorder,
             'category' => $this->whenLoaded('category', fn () => $this->category ? [
                 'id' => $this->category->id,
                 'name' => $this->category->name,
                 'path' => $this->category->path,
             ] : null),
-            // DATA.xlsx DATABASE UTAMA: Kategori Induk/Anak 1/Anak 2/Anak 3 — dipecah dari path.
-            'category_breakdown' => $this->whenLoaded('category', function () {
-                $segments = array_pad(explode(' > ', (string) $this->category?->path), 4, null);
-
-                return [
-                    'induk' => $segments[0], 'anak_1' => $segments[1],
-                    'anak_2' => $segments[2], 'anak_3' => $segments[3],
-                ];
-            }),
+            // Kategori Induk/Anak 1/2/3 barang: diturunkan dari ITEMDESCRIPTION
+            // milik rantai PARENTITEM Accurate (kolom accurate_category_anak_*,
+            // diisi oleh AccurateSyncService), BUKAN dari tree kategori Excel
+            // (`categories`/category_id — itu masih ada, dipakai fitur lain,
+            // lihat field `category` di atas). Kategori Induk selalu null:
+            // node ITEMNO 0-titik tidak pernah ada di data Accurate perusahaan
+            // ini — lihat docs/accurate-database-analysis.md §12.
+            'category_breakdown' => [
+                'induk' => null,
+                'anak_1' => $this->accurate_category_anak_1,
+                'anak_2' => $this->accurate_category_anak_2,
+                'anak_3' => $this->accurate_category_anak_3,
+            ],
             'unit' => $this->whenLoaded('unit', fn () => $this->unit?->only('id', 'code', 'name')),
             'default_warehouse_id' => $this->default_warehouse_id,
             'default_warehouse' => $this->whenLoaded('defaultWarehouse', fn () => $this->defaultWarehouse?->only('id', 'code', 'name')),
@@ -46,6 +54,7 @@ class ItemResource extends JsonResource
             'alias_name' => 'Tidak',
             'aliases' => $this->whenLoaded('aliases', fn () => $this->aliases->pluck('alias_description')),
             'safety_stock' => $this->whenLoaded('effectiveSafetyStock', fn () => $this->effectiveSafetyStock?->safety_stock),
+            'min_pr' => $this->whenLoaded('effectiveSafetyStock', fn () => $this->effectiveSafetyStock?->min_pr),
             'analysis' => $this->whenLoaded('snapshot', fn () => $this->snapshot ? [
                 'actual' => $this->snapshot->actual,
                 'reserved' => $this->snapshot->reserved,
