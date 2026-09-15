@@ -3,11 +3,11 @@
 namespace App\Services\Export\Legacy;
 
 use App\Models\BorrowTransaction;
+use App\Models\GoodsIssue;
 use App\Models\Item;
 use App\Models\LendTransaction;
 use App\Models\MaintenanceOrderSub;
 use App\Models\ManufacturingOrderSub;
-use App\Models\Npbg;
 use App\Models\Ppb;
 use App\Models\PpbAmendment;
 use App\Models\Receiving;
@@ -292,7 +292,7 @@ class LegacyExcelExportService
         ]);
         $sheet->freezePane('A2');
         $row = 2;
-        Npbg::query()->with(['items.item', 'items.unit', 'requester', 'issuedBy', 'department', 'customer', 'project', 'asset'])
+        GoodsIssue::query()->with(['items.item', 'items.unit', 'requester', 'issuedBy', 'department', 'customer', 'project', 'asset'])
             ->orderBy('date')
             ->chunk(200, function ($npbgs) use ($sheet, &$row) {
                 foreach ($npbgs as $n) {

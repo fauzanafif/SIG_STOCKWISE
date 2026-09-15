@@ -1,11 +1,11 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
-import { useOpnames, useCreateOpname } from '@/features/opname/api'
-import { useWarehouses } from '@/features/inventory/api'
+import { useOpnames } from '@/features/opname/api'
 import { PackageCheck } from 'lucide-react'
 import { useAuth } from '@/auth/AuthContext'
 import { PageHeader } from '@/components/PageHeader'
 import { DataTable, Pagination, type Column } from '@/components/DataTable'
+import { ScheduleOpnameModal } from '@/components/ScheduleOpnameModal'
 import { Button } from '@/components/ui/button'
 import { RequestStatusBadge } from '@/components/ui/request-badge'
 import type { Opname } from '@/features/opname/api'
@@ -21,7 +21,7 @@ const columns: Column<Opname>[] = [
     ),
   },
   { key: 'wh', header: 'Gudang', cell: (r) => r.warehouse?.code ?? '—' },
-  { key: 'type', header: 'Tipe', cell: (r) => r.type },
+  { key: 'type', header: 'Tipe', cell: (r) => (r.type === 'PARTIAL' ? 'CUSTOM' : r.type) },
   { key: 'prog', header: 'Progress', cell: (r) => `${r.counted_count ?? 0}/${r.items_count ?? 0}` },
   { key: 'diff', header: 'Selisih', cell: (r) => r.diff_count ?? 0 },
   { key: 'status', header: 'Status', cell: (r) => <RequestStatusBadge status={r.status} /> },
@@ -33,9 +33,7 @@ export function OpnameListPage() {
   const [status, setStatus] = useState('')
   const [page, setPage] = useState(1)
   const { data, isLoading } = useOpnames({ status: status || undefined, page })
-  const { data: warehouses } = useWarehouses()
-  const create = useCreateOpname()
-  const [wh, setWh] = useState('')
+  const [customOpen, setCustomOpen] = useState(false)
 
   return (
     <div className="space-y-5">
@@ -45,17 +43,7 @@ export function OpnameListPage() {
         icon={<PackageCheck className="size-5" />}
         actions={
           hasPermission('opname.schedule') ? (
-            <div className="flex items-center gap-2">
-            <select className="h-9 rounded-md border border-input bg-background px-2 text-sm" value={wh}
-              onChange={(e) => setWh(e.target.value)}>
-              <option value="">Pilih gudang…</option>
-              {warehouses?.map((w) => <option key={w.id} value={w.id}>{w.code}</option>)}
-            </select>
-            <Button size="sm" disabled={!wh || create.isPending}
-              onClick={() => create.mutate({ warehouse_id: Number(wh), scheduled_date: new Date().toISOString().slice(0, 10), type: 'FULL' })}>
-              Jadwalkan Opname
-            </Button>
-          </div>
+            <Button size="sm" onClick={() => setCustomOpen(true)}>ADD JADWAL</Button>
           ) : undefined
         }
       />
@@ -68,6 +56,8 @@ export function OpnameListPage() {
       </select>
       <DataTable columns={columns} rows={data?.data ?? []} rowKey={(r) => r.id} isLoading={isLoading} />
       {data && <Pagination page={data.meta.page} lastPage={data.meta.last_page} total={data.meta.total} onPage={setPage} />}
+
+      <ScheduleOpnameModal open={customOpen} onClose={() => setCustomOpen(false)} onScheduled={() => setCustomOpen(false)} />
     </div>
   )
 }

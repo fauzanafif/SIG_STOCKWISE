@@ -2,9 +2,9 @@
 
 namespace App\Services;
 
+use App\Models\GoodsIssue;
 use App\Models\Item;
 use App\Models\MaterialRequest;
-use App\Models\Npbg;
 use App\Models\StockReservation;
 use App\Models\User;
 use App\Services\Inventory\StockLedgerService;
@@ -14,23 +14,25 @@ use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 
 /**
- * NPBG (goods issue) — docs/status-flow.md §2, business-process.md BP-2.
+ * Goods issued against a warehouse reservation — docs/status-flow.md §2, business-process.md BP-2.
  * DRAFT -> PREPARING -> READY_TO_PICKUP -> PICKED_UP -> COMPLETED.
  * `actual_qty` decreases ONLY on pickup (ATURAN MUTLAK 7).
+ * Formerly `NpbgService` — renamed alongside the `npbg` table so that name can represent the
+ * real NPBG (Accurate ARINV/ARINVDET mirror, see NpbgService/NpbgController).
  */
-class NpbgService
+class GoodsIssueService
 {
     public function __construct(
         private readonly DocumentNumberService $numbers,
         private readonly StockLedgerService $ledger,
     ) {}
 
-    /** Build a PREPARING NPBG from a request's reserved lines. */
-    public function createFromRequest(MaterialRequest $request, User $user): Npbg
+    /** Build a PREPARING goods issue from a request's reserved lines. */
+    public function createFromRequest(MaterialRequest $request, User $user): GoodsIssue
     {
         if (! in_array($request->status, ['RESERVED', 'PARTIAL'], true)) {
             throw ValidationException::withMessages([
-                'status' => ['NPBG hanya bisa dibuat dari request RESERVED/PARTIAL.'],
+                'status' => ['Bukti keluar barang hanya bisa dibuat dari request RESERVED/PARTIAL.'],
             ]);
         }
 
@@ -45,7 +47,7 @@ class NpbgService
         }
 
         return DB::transaction(function () use ($request, $user, $lines) {
-            $npbg = $this->makeHeader([
+            $goodsIssue = $this->makeHeader([
                 'classification' => 'UMUM',
                 'material_request_id' => $request->id,
                 'requester_id' => $request->requester_id,
@@ -60,7 +62,7 @@ class NpbgService
                 $reservation = StockReservation::where('material_request_item_id', $line->id)
                     ->where('status', 'ACTIVE')->first();
 
-                $npbg->items()->create([
+                $goodsIssue->items()->create([
                     'item_id' => $line->item_id,
                     'material_request_item_id' => $line->id,
                     'stock_reservation_id' => $reservation?->id,
@@ -74,22 +76,22 @@ class NpbgService
 
             $request->update([
                 'status' => 'PREPARING',
-                'npbg_no' => $request->npbg_no ?: $npbg->number,
+                'npbg_no' => $request->npbg_no ?: $goodsIssue->number,
             ]);
 
-            return $npbg->load('items');
+            return $goodsIssue->load('items');
         });
     }
 
     /**
-     * Manual NPBG (e.g. daily UMUM consumption, no request).
+     * Manual goods issue (e.g. daily UMUM consumption, no request).
      *
      * @param  array{classification?:string, type?:string, warehouse_id:int, site_id:int, requester_name?:?string, notes?:?string, items:array<int,array{item_id:int, qty:float, unit_id?:?int, note?:?string}>}  $data
      */
-    public function createManual(User $user, array $data): Npbg
+    public function createManual(User $user, array $data): GoodsIssue
     {
         return DB::transaction(function () use ($user, $data) {
-            $npbg = $this->makeHeader([
+            $goodsIssue = $this->makeHeader([
                 'classification' => $data['classification'] ?? 'UMUM',
                 'type' => $data['type'] ?? 'NON_PENJUALAN',
                 'warehouse_id' => $data['warehouse_id'],
@@ -107,7 +109,7 @@ class NpbgService
             $no = 1;
             foreach ($data['items'] as $row) {
                 $item = Item::find($row['item_id']);
-                $npbg->items()->create([
+                $goodsIssue->items()->create([
                     'item_id' => $item?->id,
                     'description_raw' => $row['description_raw'] ?? $item?->description ?? '-',
                     'item_no' => $no++,
@@ -118,23 +120,23 @@ class NpbgService
                 ]);
             }
 
-            return $npbg->load('items');
+            return $goodsIssue->load('items');
         });
     }
 
     /**
-     * Ubah NPBG selagi belum siap diambil — belum ada stok yang bergerak (ATURAN MUTLAK 7).
+     * Ubah goods issue selagi belum siap diambil — belum ada stok yang bergerak (ATURAN MUTLAK 7).
      * Header (klasifikasi, pelanggan/proyek/aset, catatan) selalu bisa diubah; baris item hanya
-     * boleh diganti untuk NPBG manual (bukan hasil request — qty di sana terikat reservasi).
+     * boleh diganti untuk goods issue manual (bukan hasil request — qty di sana terikat reservasi).
      *
      * @param  array{classification?:string, customer_name?:?string, project_name?:?string, asset_ref?:?string, requester_name?:?string, notes?:?string, items?:array<int,array{item_id?:?int, description_raw?:string, qty:float, unit_id?:?int, note?:?string}>}  $data
      */
-    public function update(Npbg $npbg, array $data): Npbg
+    public function update(GoodsIssue $goodsIssue, array $data): GoodsIssue
     {
-        $this->assert($npbg, ['DRAFT', 'PREPARING']);
+        $this->assert($goodsIssue, ['DRAFT', 'PREPARING']);
 
-        return DB::transaction(function () use ($npbg, $data) {
-            $npbg->fill(array_filter([
+        return DB::transaction(function () use ($goodsIssue, $data) {
+            $goodsIssue->fill(array_filter([
                 'classification' => $data['classification'] ?? null,
                 'customer_name' => $data['customer_name'] ?? null,
                 'project_name' => $data['project_name'] ?? null,
@@ -144,18 +146,18 @@ class NpbgService
             ], fn ($v) => $v !== null))->save();
 
             if (isset($data['items'])) {
-                if ($npbg->material_request_id !== null) {
+                if ($goodsIssue->material_request_id !== null) {
                     throw ValidationException::withMessages([
-                        'items' => ['Baris NPBG dari request mengikuti reservasi — hanya bisa dibatalkan, bukan diubah qty-nya.'],
+                        'items' => ['Baris dari request mengikuti reservasi — hanya bisa dibatalkan, bukan diubah qty-nya.'],
                     ]);
                 }
 
-                $warehouseId = $npbg->items()->value('warehouse_id') ?? $npbg->warehouse_id;
-                $npbg->items()->delete();
+                $warehouseId = $goodsIssue->items()->value('warehouse_id') ?? $goodsIssue->warehouse_id;
+                $goodsIssue->items()->delete();
                 $no = 1;
                 foreach ($data['items'] as $row) {
                     $item = ! empty($row['item_id']) ? Item::find($row['item_id']) : null;
-                    $npbg->items()->create([
+                    $goodsIssue->items()->create([
                         'item_id' => $item?->id,
                         'description_raw' => $row['description_raw'] ?? $item?->description ?? '-',
                         'item_no' => $no++,
@@ -167,34 +169,34 @@ class NpbgService
                 }
             }
 
-            return $npbg->fresh('items');
+            return $goodsIssue->fresh('items');
         });
     }
 
-    public function prepare(Npbg $npbg): Npbg
+    public function prepare(GoodsIssue $goodsIssue): GoodsIssue
     {
-        $this->assert($npbg, ['DRAFT', 'PREPARING']);
-        $npbg->update(['status' => 'PREPARING']);
+        $this->assert($goodsIssue, ['DRAFT', 'PREPARING']);
+        $goodsIssue->update(['status' => 'PREPARING']);
 
-        return $npbg;
+        return $goodsIssue;
     }
 
-    public function ready(Npbg $npbg): Npbg
+    public function ready(GoodsIssue $goodsIssue): GoodsIssue
     {
-        $this->assert($npbg, ['PREPARING']);
-        $npbg->update(['status' => 'READY_TO_PICKUP']);
+        $this->assert($goodsIssue, ['PREPARING']);
+        $goodsIssue->update(['status' => 'READY_TO_PICKUP']);
 
-        return $npbg;
+        return $goodsIssue;
     }
 
-    public function pickup(Npbg $npbg, User $user, string $pickedUpBy, ?string $signature): Npbg
+    public function pickup(GoodsIssue $goodsIssue, User $user, string $pickedUpBy, ?string $signature): GoodsIssue
     {
-        $this->assert($npbg, ['READY_TO_PICKUP', 'PREPARING']);
+        $this->assert($goodsIssue, ['READY_TO_PICKUP', 'PREPARING']);
 
-        return DB::transaction(function () use ($npbg, $user, $pickedUpBy, $signature) {
+        return DB::transaction(function () use ($goodsIssue, $user, $pickedUpBy, $signature) {
             $batch = (string) Str::uuid();
 
-            foreach ($npbg->items()->with('reservation')->get() as $line) {
+            foreach ($goodsIssue->items()->with('reservation')->get() as $line) {
                 if ($line->item_id === null || $line->qty <= 0) {
                     continue;
                 }
@@ -213,7 +215,7 @@ class NpbgService
                     'reference' => $line,
                     'batch_uuid' => $batch,
                     'created_by' => $user->id,
-                    'note' => "Pickup {$npbg->number}",
+                    'note' => "Pickup {$goodsIssue->number}",
                 ]);
 
                 $line->update(['qty_issued' => $line->qty]);
@@ -227,9 +229,9 @@ class NpbgService
                 }
             }
 
-            $path = $this->storeSignature($npbg, $signature);
+            $path = $this->storeSignature($goodsIssue, $signature);
 
-            $npbg->update([
+            $goodsIssue->update([
                 'status' => 'PICKED_UP',
                 'picked_up_by' => $pickedUpBy,
                 'picked_up_at' => now(),
@@ -237,37 +239,37 @@ class NpbgService
                 'signature_path' => $path,
             ]);
 
-            $npbg->update(['status' => 'COMPLETED']);
-            $this->syncRequestCompletion($npbg);
+            $goodsIssue->update(['status' => 'COMPLETED']);
+            $this->syncRequestCompletion($goodsIssue);
 
-            return $npbg->fresh('items');
+            return $goodsIssue->fresh('items');
         });
     }
 
-    public function cancel(Npbg $npbg, User $user, string $reason): Npbg
+    public function cancel(GoodsIssue $goodsIssue, User $user, string $reason): GoodsIssue
     {
-        if (in_array($npbg->status, ['PICKED_UP', 'COMPLETED', 'CANCELLED'], true)) {
-            throw ValidationException::withMessages(['status' => ['NPBG tidak bisa dibatalkan.']]);
+        if (in_array($goodsIssue->status, ['PICKED_UP', 'COMPLETED', 'CANCELLED'], true)) {
+            throw ValidationException::withMessages(['status' => ['Tidak bisa dibatalkan.']]);
         }
-        $npbg->update(['status' => 'CANCELLED', 'cancel_reason' => $reason]);
+        $goodsIssue->update(['status' => 'CANCELLED', 'cancel_reason' => $reason]);
 
-        if ($npbg->request && $npbg->request->status === 'PREPARING') {
-            $npbg->request->update(['status' => 'RESERVED']);
+        if ($goodsIssue->request && $goodsIssue->request->status === 'PREPARING') {
+            $goodsIssue->request->update(['status' => 'RESERVED']);
         }
 
-        return $npbg;
+        return $goodsIssue;
     }
 
     // ------------------------------------------------------------------
 
-    private function makeHeader(array $attrs): Npbg
+    private function makeHeader(array $attrs): GoodsIssue
     {
         $date = now();
         $prefix = $attrs['prefix'] ?? 'NA';
-        $number = $this->numbers->next('NPBG', $prefix, $date);
+        $number = $this->numbers->next('BKB', $prefix, $date);
         [, , $yy, $rom, $seq] = explode('/', $number);
 
-        return Npbg::create(array_merge([
+        return GoodsIssue::create(array_merge([
             'number' => $number,
             'prefix' => $prefix,
             'year' => (int) $yy,
@@ -279,7 +281,7 @@ class NpbgService
         ], $attrs));
     }
 
-    private function storeSignature(Npbg $npbg, ?string $signature): ?string
+    private function storeSignature(GoodsIssue $goodsIssue, ?string $signature): ?string
     {
         if (! $signature) {
             return null;
@@ -287,7 +289,7 @@ class NpbgService
         if (Str::startsWith($signature, 'data:image')) {
             [$meta, $b64] = explode(',', $signature, 2);
             $ext = Str::contains($meta, 'png') ? 'png' : 'jpg';
-            $path = "signatures/{$npbg->number}.{$ext}";
+            $path = "signatures/{$goodsIssue->number}.{$ext}";
             Storage::disk('local')->put($path, base64_decode($b64));
 
             return $path;
@@ -296,9 +298,9 @@ class NpbgService
         return $signature; // treat as an external ref
     }
 
-    private function syncRequestCompletion(Npbg $npbg): void
+    private function syncRequestCompletion(GoodsIssue $goodsIssue): void
     {
-        $request = $npbg->request;
+        $request = $goodsIssue->request;
         if (! $request) {
             return;
         }
@@ -314,11 +316,11 @@ class NpbgService
     }
 
     /** @param list<string> $allowed */
-    private function assert(Npbg $npbg, array $allowed): void
+    private function assert(GoodsIssue $goodsIssue, array $allowed): void
     {
-        if (! in_array($npbg->status, $allowed, true)) {
+        if (! in_array($goodsIssue->status, $allowed, true)) {
             throw ValidationException::withMessages([
-                'status' => ["Aksi tidak valid untuk status NPBG {$npbg->status}."],
+                'status' => ["Aksi tidak valid untuk status {$goodsIssue->status}."],
             ]);
         }
     }

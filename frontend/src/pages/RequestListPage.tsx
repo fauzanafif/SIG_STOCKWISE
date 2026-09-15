@@ -42,7 +42,7 @@ const columns: Column<MaterialRequest>[] = [
   { key: 'items', header: 'Barang', cell: (r) => r.items_count ?? '—' },
   {
     key: 'refs',
-    header: 'NPBG / PPB',
+    header: 'Bukti Keluar / PPB',
     cell: (r) => (
       <span className="font-mono text-xs text-muted-foreground">
         {r.npbg_no ?? '—'} / {r.ppb_no ?? '—'}

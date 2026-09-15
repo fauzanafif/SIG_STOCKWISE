@@ -5,8 +5,10 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
-class NpbgItem extends Model
+class GoodsIssueItem extends Model
 {
+    protected $table = 'goods_issue_items';
+
     protected $guarded = ['id'];
 
     protected function casts(): array
@@ -17,9 +19,9 @@ class NpbgItem extends Model
         ];
     }
 
-    public function npbg(): BelongsTo
+    public function goodsIssue(): BelongsTo
     {
-        return $this->belongsTo(Npbg::class);
+        return $this->belongsTo(GoodsIssue::class, 'npbg_id');
     }
 
     public function item(): BelongsTo

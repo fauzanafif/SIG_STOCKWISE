@@ -2,6 +2,8 @@ import { createBrowserRouter, Navigate } from 'react-router-dom'
 import { RequireAuth, RequirePermission } from '@/auth/guards'
 import { AppLayout } from '@/components/AppLayout'
 import { DashboardPage } from '@/pages/DashboardPage'
+import { GoodsIssueDetailPage } from '@/pages/GoodsIssueDetailPage'
+import { GoodsIssueListPage } from '@/pages/GoodsIssueListPage'
 import { HealthPage } from '@/pages/HealthPage'
 import { InventoryAnalysisPage } from '@/pages/InventoryAnalysisPage'
 import { ItemsPage } from '@/pages/ItemsPage'
@@ -52,7 +54,14 @@ export const router = createBrowserRouter([
             ],
           },
           {
-            element: <RequirePermission permission={['npbg.view', 'npbg.view_own']} />,
+            element: <RequirePermission permission={['goods_issue.view', 'goods_issue.view_own']} />,
+            children: [
+              { path: '/goods-issues', element: <GoodsIssueListPage /> },
+              { path: '/goods-issues/:id', element: <GoodsIssueDetailPage /> },
+            ],
+          },
+          {
+            element: <RequirePermission permission={['npbg.view']} />,
             children: [
               { path: '/npbg', element: <NpbgListPage /> },
               { path: '/npbg/:id', element: <NpbgDetailPage /> },

@@ -100,7 +100,7 @@ class ManufacturingController extends Controller
         $data = $request->validate([
             'process' => ['nullable', 'string', 'max:60'],
             'serial_no_raw' => ['nullable', 'string', 'max:80'],
-            'npbg_id' => ['nullable', 'integer', 'exists:npbg,id'],
+            'npbg_id' => ['nullable', 'integer', 'exists:goods_issues,id'],
             'note_start' => ['nullable', 'string', 'max:2000'],
         ]);
         $this->service->addSub($manufacturingOrder, $data);

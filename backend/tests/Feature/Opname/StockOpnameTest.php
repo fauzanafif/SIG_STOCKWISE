@@ -149,4 +149,212 @@ class StockOpnameTest extends TestCase
         $this->postJson("/api/stock-opnames/{$o->id}/review", ['decisions' => [['id' => 1, 'decision' => 'APPROVED']]])
             ->assertForbidden();
     }
+
+    /**
+     * Real process: admin_gudang schedules, admin lapangan (role lapangan_gudang) is the one
+     * who actually walks the floor, counts, and submits — admin_gudang reviews/approves.
+     */
+    public function test_lapangan_gudang_does_the_physical_count_and_submit(): void
+    {
+        $item = $this->stockedItem(100);
+
+        $this->actingAsRole('admin_gudang');
+        $id = $this->postJson('/api/stock-opnames', [
+            'warehouse_id' => $this->warehouse->id,
+            'scheduled_date' => now()->toDateString(),
+            'type' => 'FULL',
+        ])->assertCreated()->json('data.id');
+
+        $this->actingAsRole('lapangan_gudang');
+        $this->postJson("/api/stock-opnames/{$id}/start")->assertOk();
+
+        $o = StockOpname::find($id);
+        $line = $o->items()->where('item_id', $item->id)->first();
+        $this->putJson("/api/stock-opnames/{$id}/items/{$line->id}", ['physical_qty' => 95, 'note' => '5 pcs rusak'])
+            ->assertOk();
+        $this->postJson("/api/stock-opnames/{$id}/submit")->assertOk()
+            ->assertJsonPath('data.status', 'PENDING_REVIEW');
+
+        // counting is not scheduling or approving — admin lapangan stays scoped to that
+        $this->postJson('/api/stock-opnames', [
+            'warehouse_id' => $this->warehouse->id, 'scheduled_date' => now()->toDateString(), 'type' => 'FULL',
+        ])->assertForbidden();
+        $this->postJson("/api/stock-opnames/{$id}/review", ['decisions' => [['id' => $line->id, 'decision' => 'APPROVED']]])
+            ->assertForbidden();
+
+        $this->actingAsRole('admin_gudang');
+        $this->postJson("/api/stock-opnames/{$id}/review", ['decisions' => [['id' => $line->id, 'decision' => 'APPROVED']]])
+            ->assertOk()->assertJsonPath('data.status', 'COMPLETED');
+    }
+
+    /**
+     * Real bug: scheduling used to read the item list from `inventory`, so an item with no
+     * inventory row yet (the exact, common case for a brand-new item, or — per
+     * docs/assumptions.md NC-4 — an OPENING opname done specifically because no inventory row
+     * exists yet) never got a line at all. Item lines must come from Master Barang.
+     */
+    public function test_opening_opname_includes_items_with_no_inventory_row_yet(): void
+    {
+        $item = Item::factory()->create(); // no Inventory row created for it at all
+
+        $this->actingAsRole('admin_gudang');
+        $res = $this->postJson('/api/stock-opnames', [
+            'warehouse_id' => $this->warehouse->id,
+            'scheduled_date' => now()->toDateString(),
+            'type' => 'OPENING',
+        ])->assertCreated();
+
+        $res->assertJsonPath('data.items_count', 1);
+
+        $opname = StockOpname::find($res->json('data.id'));
+        $line = $opname->items()->where('item_id', $item->id)->first();
+        $this->assertNotNull($line, 'item with no prior inventory row must still get an opname line');
+        $this->assertSame(0.0, (float) $line->system_qty);
+    }
+
+    public function test_full_opname_mixes_items_with_and_without_inventory(): void
+    {
+        $known = $this->stockedItem(50);
+        $new = Item::factory()->create();
+
+        $this->actingAsRole('admin_gudang');
+        $id = $this->postJson('/api/stock-opnames', [
+            'warehouse_id' => $this->warehouse->id,
+            'scheduled_date' => now()->toDateString(),
+            'type' => 'FULL',
+        ])->assertCreated()->json('data.id');
+
+        $opname = StockOpname::find($id);
+        $this->assertSame(50.0, (float) $opname->items()->where('item_id', $known->id)->first()->system_qty);
+        $this->assertSame(0.0, (float) $opname->items()->where('item_id', $new->id)->first()->system_qty);
+    }
+
+    public function test_partial_opname_includes_every_requested_item_even_without_inventory(): void
+    {
+        $a = Item::factory()->create();
+        $b = Item::factory()->create();
+
+        $this->actingAsRole('admin_gudang');
+        $res = $this->postJson('/api/stock-opnames', [
+            'warehouse_id' => $this->warehouse->id,
+            'scheduled_date' => now()->toDateString(),
+            'type' => 'PARTIAL',
+            'item_ids' => [$a->id, $b->id],
+        ])->assertCreated();
+
+        $res->assertJsonPath('data.items_count', 2);
+    }
+
+    public function test_full_opname_excludes_items_assigned_to_a_different_warehouse(): void
+    {
+        $otherWarehouse = Warehouse::factory()->create(['site_id' => $this->warehouse->site_id]);
+        Item::factory()->create(['default_warehouse_id' => $otherWarehouse->id]);
+        $mine = Item::factory()->create(['default_warehouse_id' => $this->warehouse->id]);
+        $unassigned = Item::factory()->create();
+
+        $this->actingAsRole('admin_gudang');
+        $id = $this->postJson('/api/stock-opnames', [
+            'warehouse_id' => $this->warehouse->id,
+            'scheduled_date' => now()->toDateString(),
+            'type' => 'FULL',
+        ])->assertCreated()->json('data.id');
+
+        $opname = StockOpname::find($id);
+        $this->assertNotNull($opname->items()->where('item_id', $mine->id)->first());
+        $this->assertNotNull($opname->items()->where('item_id', $unassigned->id)->first());
+        $this->assertSame(2, $opname->items()->count());
+    }
+
+    public function test_schedule_ignores_inactive_items(): void
+    {
+        Item::factory()->create(['is_active' => false]);
+
+        $this->actingAsRole('admin_gudang');
+        $res = $this->postJson('/api/stock-opnames', [
+            'warehouse_id' => $this->warehouse->id,
+            'scheduled_date' => now()->toDateString(),
+            'type' => 'FULL',
+        ])->assertCreated();
+
+        $res->assertJsonPath('data.items_count', 0);
+    }
+
+    /**
+     * Blind count: admin lapangan (opname.count, no opname.review) must never see system_qty —
+     * or anything derived from it (difference/match_status/diff_label), since combined with the
+     * physical_qty they themselves typed, either would let them back-calculate system_qty and
+     * just parrot it back instead of counting for real.
+     */
+    public function test_counter_role_never_sees_system_qty_or_derived_fields(): void
+    {
+        $item = $this->stockedItem(100);
+        $o = $this->scheduleAndStart();
+        $this->enterCount($o, $item->id, 95, '5 pcs rusak');
+
+        // still acting as anak_gudang (the counter) from scheduleAndStart()/enterCount()
+        $res = $this->getJson("/api/stock-opnames/{$o->id}")->assertOk();
+        $line = collect($res->json('data.items'))->firstWhere('item_id', $item->id);
+
+        $this->assertArrayNotHasKey('system_qty', $line);
+        $this->assertArrayNotHasKey('difference', $line);
+        $this->assertArrayNotHasKey('match_status', $line);
+        $this->assertArrayNotHasKey('diff_label', $line);
+        $this->assertSame(95.0, (float) $line['physical_qty'], 'counter must still see what they themselves entered');
+    }
+
+    public function test_reviewer_sees_valid_invalid_verdict_and_signed_difference(): void
+    {
+        $match = $this->stockedItem(100);
+        $mismatch = $this->stockedItem(50);
+        $o = $this->scheduleAndStart();
+        $this->enterCount($o, $match->id, 100); // no note needed, no difference
+        $this->enterCount($o, $mismatch->id, 47, 'kurang 3');
+        $this->postJson("/api/stock-opnames/{$o->id}/submit");
+
+        $this->actingAsRole('admin_gudang');
+        $res = $this->getJson("/api/stock-opnames/{$o->id}")->assertOk();
+        $items = collect($res->json('data.items'));
+
+        $matchLine = $items->firstWhere('item_id', $match->id);
+        $this->assertSame('VALID', $matchLine['match_status']);
+        $this->assertSame('0', $matchLine['diff_label']);
+        $this->assertEquals(100, $matchLine['system_qty']);
+
+        $mismatchLine = $items->firstWhere('item_id', $mismatch->id);
+        $this->assertSame('INVALID', $mismatchLine['match_status']);
+        $this->assertSame('-3', $mismatchLine['diff_label']);
+        $this->assertEquals(50, $mismatchLine['system_qty']);
+    }
+
+    public function test_show_reports_correct_counts_not_just_index(): void
+    {
+        // Pre-existing bug found while verifying the above: show() never loadCount()'d
+        // items/counted_count/diff_count (only index() did), so the detail page's own
+        // "X/Y dihitung" and "Z invalid SO" summary always displayed as 0/0/0.
+        $a = $this->stockedItem(100);
+        $b = $this->stockedItem(50);
+        $o = $this->scheduleAndStart();
+        $this->enterCount($o, $a->id, 100);
+        $this->enterCount($o, $b->id, 47, 'kurang 3');
+
+        $this->actingAsRole('admin_gudang');
+        $res = $this->getJson("/api/stock-opnames/{$o->id}")->assertOk();
+
+        $res->assertJsonPath('data.items_count', 2)
+            ->assertJsonPath('data.counted_count', 2)
+            ->assertJsonPath('data.diff_count', 1);
+    }
+
+    public function test_uncounted_line_has_no_verdict_yet(): void
+    {
+        $this->stockedItem(100);
+        $o = $this->scheduleAndStart();
+
+        $this->actingAsRole('admin_gudang');
+        $res = $this->getJson("/api/stock-opnames/{$o->id}")->assertOk();
+        $line = $res->json('data.items.0');
+
+        $this->assertNull($line['match_status']);
+        $this->assertNull($line['diff_label']);
+    }
 }

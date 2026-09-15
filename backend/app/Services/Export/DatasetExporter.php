@@ -8,7 +8,10 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
 
 /**
  * Turns a header row + data rows into a downloadable file (xlsx / csv / pdf-print).
- * PHASE 10 — brief §AG. Keeps output streaming so large datasets stay memory-light.
+ * PHASE 10 — brief §AG. csv/pdf write straight to the output stream so large
+ * datasets stay memory-light; xlsx can't (PhpSpreadsheet builds the whole
+ * workbook in memory before the writer runs), so that path raises memory_limit
+ * instead — see xlsx() below.
  */
 class DatasetExporter
 {
@@ -40,6 +43,13 @@ class DatasetExporter
 
     private function xlsx(string $filename, array $headers, iterable $rows, string $title): StreamedResponse
     {
+        // Datasets like Master Barang / NPBG run 8-9k+ rows — PhpSpreadsheet holds
+        // the whole cell collection in memory (no true streaming writer here), so
+        // the default 128M memory_limit reliably fatal-errors past a few thousand
+        // rows. Same fix already applied to DATA.xlsx in LegacyExportController.
+        ini_set('memory_limit', '1024M');
+        set_time_limit(300);
+
         $book = new Spreadsheet;
         $sheet = $book->getActiveSheet();
         $sheet->setTitle(substr($title ?: 'Data', 0, 31));
@@ -65,8 +75,14 @@ class DatasetExporter
             }
             $r++;
         }
-        foreach (range(1, count($headers)) as $col) {
-            $sheet->getColumnDimensionByColumn($col)->setAutoSize(true);
+
+        // setAutoSize(true) makes PhpSpreadsheet measure every cell in the
+        // column at save time — fine for a few hundred rows, but it's what
+        // actually pushes datasets this size (thousands of rows) into the
+        // memory/time exhaustion this method just widened room for. A width
+        // guessed from the header label is a lot cheaper and good enough.
+        foreach ($headers as $i => $h) {
+            $sheet->getColumnDimensionByColumn($i + 1)->setWidth(max(12, min(40, strlen((string) $h) + 4)));
         }
 
         return response()->streamDownload(function () use ($book) {

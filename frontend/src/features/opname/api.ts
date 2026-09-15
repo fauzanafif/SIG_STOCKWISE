@@ -6,12 +6,20 @@ export interface OpnameLine {
   item_id: number
   item_code: string | null
   description: string | null
-  system_qty: number
   physical_qty: number | null
-  difference: number | null
   note: string | null
   count_status: string
   review_status: string
+  /**
+   * Blind count: system_qty and everything derived from it (difference/match_status/diff_label)
+   * are only present in the API response for a reviewer (opname.review permission) — the counter
+   * (opname.count only, e.g. admin lapangan) gets these keys omitted entirely, not just null'd,
+   * so they can never back-calculate system_qty from their own physical_qty.
+   */
+  system_qty?: number
+  difference?: number
+  match_status?: 'VALID' | 'INVALID' | null
+  diff_label?: string | null
 }
 
 export interface Opname {
@@ -21,10 +29,14 @@ export interface Opname {
   type: string
   warehouse?: { id: number; code: string; name?: string } | null
   scheduled_date: string | null
+  scheduled_by: string | null
   counter: string | null
+  reviewer: string | null
   items_count?: number
   counted_count?: number
   diff_count?: number
+  created_at: string | null
+  started_at: string | null
   submitted_at: string | null
   reviewed_at: string | null
   review_note: string | null
@@ -74,8 +86,19 @@ export function useOpnameMutations(id: number) {
 export function useCreateOpname() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: async (p: { warehouse_id: number; scheduled_date: string; type: string }) =>
+    mutationFn: async (p: { warehouse_id: number; scheduled_date: string; type: string; item_ids?: number[] }) =>
       (await api.post<{ data: Opname }>('/api/stock-opnames', p)).data.data,
     onSuccess: () => qc.invalidateQueries({ queryKey: ['opnames'] }),
   })
+}
+
+/** All active item IDs matching a Master Barang filter — for bulk-adding a whole category etc. to a custom opname. */
+export async function fetchItemIds(filters: {
+  search?: string
+  accurate_category_anak_1?: string
+  accurate_category_anak_2?: string
+  accurate_category_anak_3?: string
+  unit_id?: number
+}): Promise<number[]> {
+  return (await api.get<{ data: number[] }>('/api/items/ids', { params: filters })).data.data
 }

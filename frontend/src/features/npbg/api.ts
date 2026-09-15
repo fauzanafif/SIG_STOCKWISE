@@ -2,43 +2,53 @@ import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tansta
 import { api } from '@/lib/api'
 import type { Paginated } from '@/types/inventory'
 
-export interface NpbgLine {
-  id: number
-  item_id: number | null
-  item_code: string | null
-  description: string
-  item_no: number | null
-  qty: number
-  qty_issued: number
-  unit: string | null
-  note: string | null
-}
-
+/** NPBG — mirror of Accurate ARINV (header) + ARINVDET (line), one row per line. */
 export interface Npbg {
   id: number
-  number: string
-  status: string
-  type: string
-  classification: string
-  date: string | null
-  material_request_id: number | null
-  request_number?: string | null
-  requester: string | null
-  warehouse?: { id: number; code: string; name?: string } | null
-  customer_name: string | null
-  project_name: string | null
-  asset_ref: string | null
-  picked_up_by: string | null
-  picked_up_at: string | null
-  has_signature: boolean
-  cancel_reason: string | null
-  notes: string | null
+  no_npbg: string | null
+  tgl_npbg: string | null
+  shipdate: string | null
+  taxdate: string | null
+  tipe_npbg: string | null
+  klasifikasi: string | null
+  deskripsi_barang: string | null
+  deskripsi: string | null
+  kuantitas: number | null
+  satuan: string | null
+  peminta: string | null
+  divisi: string | null
+  pelanggan: string | null
+  nama_proyek: string | null
+  no_seri_nopol: string | null
+  dikeluarkan_oleh: string | null
+  keterangan: string | null
+  accurate_synced_at: string | null
   created_at: string
-  items?: NpbgLine[]
-  items_count?: number
+  updated_at: string
+  verifications_count?: number
+  latest_verification_status?: string | null
 }
 
-export function useNpbgList(params: { status?: string; search?: string; page?: number }) {
+/** Only these fields have no Accurate source — the only ones the API accepts on update. */
+export interface NpbgEditableFields {
+  tipe_npbg?: string | null
+  klasifikasi?: string | null
+  deskripsi?: string | null
+  nama_proyek?: string | null
+  no_seri_nopol?: string | null
+  dikeluarkan_oleh?: string | null
+}
+
+export function useNpbgList(params: {
+  search?: string
+  tipe_npbg?: string
+  klasifikasi?: string
+  divisi?: string
+  pelanggan?: string
+  date_from?: string
+  date_to?: string
+  page?: number
+}) {
   return useQuery({
     queryKey: ['npbg', params],
     queryFn: async () => (await api.get<Paginated<Npbg>>('/api/npbg', { params })).data,
@@ -54,60 +64,10 @@ export function useNpbg(id: number | null) {
   })
 }
 
-export function useNpbgAction(id: number) {
-  const qc = useQueryClient()
-  return useMutation({
-    mutationFn: async ({ action, body }: { action: string; body?: unknown }) =>
-      (await api.post<{ data: Npbg }>(`/api/npbg/${id}/${action}`, body ?? {})).data.data,
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['npbg'] })
-      qc.invalidateQueries({ queryKey: ['request'] })
-    },
-  })
-}
-
-export function useCreateNpbgManual() {
-  const qc = useQueryClient()
-  return useMutation({
-    mutationFn: async (body: {
-      classification?: string
-      type?: string
-      warehouse_id: number
-      requester_name?: string
-      customer_name?: string
-      project_name?: string
-      asset_ref?: string
-      notes?: string
-      items: { item_id: number; qty: number; unit_id?: number; note?: string }[]
-    }) => (await api.post<{ data: Npbg }>('/api/npbg', body)).data.data,
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['npbg'] }),
-  })
-}
-
 export function useUpdateNpbg(id: number) {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: async (body: {
-      classification?: string
-      customer_name?: string
-      project_name?: string
-      asset_ref?: string
-      requester_name?: string
-      notes?: string
-      items?: { item_id?: number; description_raw?: string; qty: number; unit_id?: number; note?: string }[]
-    }) => (await api.put<{ data: Npbg }>(`/api/npbg/${id}`, body)).data.data,
+    mutationFn: async (body: NpbgEditableFields) => (await api.patch<{ data: Npbg }>(`/api/npbg/${id}`, body)).data.data,
     onSuccess: () => qc.invalidateQueries({ queryKey: ['npbg'] }),
-  })
-}
-
-export function useCreateNpbgFromRequest() {
-  const qc = useQueryClient()
-  return useMutation({
-    mutationFn: async (requestId: number) =>
-      (await api.post<{ data: Npbg }>('/api/npbg/from-request', { material_request_id: requestId })).data.data,
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['npbg'] })
-      qc.invalidateQueries({ queryKey: ['request'] })
-    },
   })
 }

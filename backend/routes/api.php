@@ -9,7 +9,9 @@ use App\Http\Controllers\Api\ItemController;
 use App\Http\Controllers\Api\LegacyExportController;
 use App\Http\Controllers\Api\MasterDataController;
 use App\Http\Controllers\Api\MaterialRequestController;
+use App\Http\Controllers\Api\GoodsIssueController;
 use App\Http\Controllers\Api\NpbgController;
+use App\Http\Controllers\Api\NpbgVerificationController;
 use App\Http\Controllers\Api\PermissionController;
 use App\Http\Controllers\Api\PpbController;
 use App\Http\Controllers\Api\PurchaseOrderController;
@@ -74,6 +76,7 @@ Route::middleware('auth:sanctum')->group(function (): void {
     Route::middleware('permission:item.view')->group(function () {
         Route::get('/items', [ItemController::class, 'index'])->name('api.items.index');
         Route::get('/items/accurate-categories', [ItemController::class, 'accurateCategoryOptions'])->name('api.items.accurate-categories');
+        Route::get('/items/ids', [ItemController::class, 'ids'])->name('api.items.ids');
         Route::get('/items/{item}', [ItemController::class, 'show'])->name('api.items.show');
     });
     Route::post('/items', [ItemController::class, 'store'])
@@ -146,27 +149,66 @@ Route::middleware('auth:sanctum')->group(function (): void {
 
     /*
     |--------------------------------------------------------------------------
-    | PHASE 5 — NPBG + Pickup
+    | PHASE 5 — Goods Issue (Bukti Keluar Barang) + Pickup — formerly "NPBG";
+    | renamed so /api/npbg below can be the real NPBG (Accurate ARINV/ARINVDET mirror).
+    |--------------------------------------------------------------------------
+    */
+    Route::get('/goods-issues', [GoodsIssueController::class, 'index'])
+        ->middleware('permission:goods_issue.view|goods_issue.view_own')->name('api.goods-issues.index');
+    Route::get('/goods-issues/{goodsIssue}', [GoodsIssueController::class, 'show'])
+        ->middleware('permission:goods_issue.view|goods_issue.view_own')->name('api.goods-issues.show');
+    Route::post('/goods-issues/from-request', [GoodsIssueController::class, 'storeFromRequest'])
+        ->middleware('permission:goods_issue.create')->name('api.goods-issues.from-request');
+    Route::post('/goods-issues', [GoodsIssueController::class, 'storeManual'])
+        ->middleware('permission:goods_issue.create')->name('api.goods-issues.store');
+    Route::match(['put', 'patch'], '/goods-issues/{goodsIssue}', [GoodsIssueController::class, 'update'])
+        ->middleware('permission:goods_issue.update')->name('api.goods-issues.update');
+    Route::post('/goods-issues/{goodsIssue}/prepare', [GoodsIssueController::class, 'prepare'])
+        ->middleware('permission:goods_issue.prepare')->name('api.goods-issues.prepare');
+    Route::post('/goods-issues/{goodsIssue}/ready', [GoodsIssueController::class, 'ready'])
+        ->middleware('permission:goods_issue.ready')->name('api.goods-issues.ready');
+    Route::post('/goods-issues/{goodsIssue}/pickup', [GoodsIssueController::class, 'pickup'])
+        ->middleware('permission:goods_issue.pickup')->name('api.goods-issues.pickup');
+    Route::post('/goods-issues/{goodsIssue}/cancel', [GoodsIssueController::class, 'cancel'])
+        ->middleware('permission:goods_issue.cancel')->name('api.goods-issues.cancel');
+
+    /*
+    |--------------------------------------------------------------------------
+    | NPBG — Accurate ARINV/ARINVDET mirror (read-mostly; only a few
+    | Stockwise-owned fields are editable). Populated by "Sync Accurate"
+    | (see the sync.accurate routes above), never created manually.
     |--------------------------------------------------------------------------
     */
     Route::get('/npbg', [NpbgController::class, 'index'])
-        ->middleware('permission:npbg.view|npbg.view_own')->name('api.npbg.index');
+        ->middleware('permission:npbg.view')->name('api.npbg.index');
     Route::get('/npbg/{npbg}', [NpbgController::class, 'show'])
-        ->middleware('permission:npbg.view|npbg.view_own')->name('api.npbg.show');
-    Route::post('/npbg/from-request', [NpbgController::class, 'storeFromRequest'])
-        ->middleware('permission:npbg.create')->name('api.npbg.from-request');
-    Route::post('/npbg', [NpbgController::class, 'storeManual'])
-        ->middleware('permission:npbg.create')->name('api.npbg.store');
+        ->middleware('permission:npbg.view')->name('api.npbg.show');
     Route::match(['put', 'patch'], '/npbg/{npbg}', [NpbgController::class, 'update'])
         ->middleware('permission:npbg.update')->name('api.npbg.update');
-    Route::post('/npbg/{npbg}/prepare', [NpbgController::class, 'prepare'])
-        ->middleware('permission:npbg.prepare')->name('api.npbg.prepare');
-    Route::post('/npbg/{npbg}/ready', [NpbgController::class, 'ready'])
-        ->middleware('permission:npbg.ready')->name('api.npbg.ready');
-    Route::post('/npbg/{npbg}/pickup', [NpbgController::class, 'pickup'])
-        ->middleware('permission:npbg.pickup')->name('api.npbg.pickup');
-    Route::post('/npbg/{npbg}/cancel', [NpbgController::class, 'cancel'])
-        ->middleware('permission:npbg.cancel')->name('api.npbg.cancel');
+
+    /*
+    |--------------------------------------------------------------------------
+    | NPBG — Klarifikasi/Verifikasi Barang (barang alternatif beda type/spek).
+    |--------------------------------------------------------------------------
+    */
+    Route::get('/npbg/{npbg}/verifications', [NpbgVerificationController::class, 'index'])
+        ->middleware('permission:npbg.verification.view')->name('api.npbg.verifications.index');
+    Route::post('/npbg/{npbg}/verifications', [NpbgVerificationController::class, 'store'])
+        ->middleware('permission:npbg.verification.manage')->name('api.npbg.verifications.store');
+    Route::get('/npbg-verifications/{verification}', [NpbgVerificationController::class, 'show'])
+        ->middleware('permission:npbg.verification.view')->name('api.npbg.verifications.show');
+    Route::post('/npbg-verifications/{verification}/process', [NpbgVerificationController::class, 'process'])
+        ->middleware('permission:npbg.verification.manage')->name('api.npbg.verifications.process');
+    Route::post('/npbg-verifications/{verification}/offer-alternative', [NpbgVerificationController::class, 'offerAlternative'])
+        ->middleware('permission:npbg.verification.manage')->name('api.npbg.verifications.offer-alternative');
+    Route::post('/npbg-verifications/{verification}/respond', [NpbgVerificationController::class, 'respond'])
+        ->middleware('permission:npbg.verification.respond')->name('api.npbg.verifications.respond');
+    Route::post('/npbg-verifications/{verification}/escalate', [NpbgVerificationController::class, 'escalate'])
+        ->middleware('permission:npbg.verification.manage')->name('api.npbg.verifications.escalate');
+    Route::post('/npbg-verifications/{verification}/bos-decide', [NpbgVerificationController::class, 'bosDecide'])
+        ->middleware('permission:npbg.verification.bos_decide')->name('api.npbg.verifications.bos-decide');
+    Route::get('/npbg-verifications/logs/{log}/attachment', [NpbgVerificationController::class, 'attachment'])
+        ->middleware('permission:npbg.verification.view')->name('api.npbg.verifications.attachment');
 
     /*
     |--------------------------------------------------------------------------

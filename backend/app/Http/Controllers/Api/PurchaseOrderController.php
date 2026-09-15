@@ -90,7 +90,7 @@ class PurchaseOrderController extends Controller
             'date' => $p->date?->toDateString(),
             'vendor_name' => $p->relationLoaded('vendor') ? $p->vendor?->name : null,
             'ppb_id' => $p->ppb_id, 'items_count' => $p->items_count,
-            'total' => $p->total, 'created_at' => $p->created_at,
+            'total' => $p->total, 'created_at' => $p->created_at, 'approved_at' => $p->approved_at,
         ];
     }
 }

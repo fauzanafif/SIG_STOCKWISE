@@ -77,7 +77,7 @@ class BorrowController extends Controller
     {
         $data = $request->validate([
             'qty' => ['required', 'numeric', 'gt:0'],
-            'return_npbg_id' => ['nullable', 'integer', 'exists:npbg,id'],
+            'return_npbg_id' => ['nullable', 'integer', 'exists:goods_issues,id'],
             'returned_at' => ['nullable', 'date'],
             'condition_note' => ['nullable', 'string', 'max:255'],
         ]);

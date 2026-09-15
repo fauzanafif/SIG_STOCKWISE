@@ -130,6 +130,7 @@ export function PpbDetailPage() {
       <Card>
         <CardContent className="grid grid-cols-2 gap-y-1 p-4 text-sm sm:grid-cols-3">
           <Field label="Tanggal" value={ppb.date ? new Date(ppb.date).toLocaleDateString('id-ID') : '—'} />
+          <Field label="Dibuat" value={new Date(ppb.created_at).toLocaleString('id-ID')} />
           <Field label="Disetujui" value={ppb.approved_at ? new Date(ppb.approved_at).toLocaleString('id-ID') : '—'} />
           {ppb.notes && <Field label="Catatan" value={ppb.notes} />}
         </CardContent>

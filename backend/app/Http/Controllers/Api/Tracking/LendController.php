@@ -44,7 +44,7 @@ class LendController extends Controller
             'customer_id' => ['nullable', 'integer', 'exists:customers,id'],
             'project_id' => ['nullable', 'integer', 'exists:projects,id'],
             'est_days' => ['nullable', 'integer', 'min:1', 'max:365'],
-            'out_npbg_id' => ['nullable', 'integer', 'exists:npbg,id'],
+            'out_npbg_id' => ['nullable', 'integer', 'exists:goods_issues,id'],
             'out_date' => ['nullable', 'date'],
             'condition_out' => ['nullable', 'string', 'max:255'],
         ]);

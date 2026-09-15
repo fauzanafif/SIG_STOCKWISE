@@ -51,6 +51,8 @@ export function PoDetailPage() {
           <Field label="Tanggal" value={po.date ? new Date(po.date).toLocaleDateString('id-ID') : '—'} />
           <Field label="Perkiraan Tiba" value={po.expected_date ?? '—'} />
           <Field label="Total" value={rupiah(po.total)} />
+          <Field label="Dibuat" value={new Date(po.created_at).toLocaleString('id-ID')} />
+          <Field label="Disetujui" value={po.approved_at ? new Date(po.approved_at).toLocaleString('id-ID') : '—'} />
           {po.notes && <Field label="Catatan" value={po.notes} />}
         </CardContent>
       </Card>

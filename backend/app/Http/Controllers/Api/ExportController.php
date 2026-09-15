@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\GoodsIssue;
 use App\Models\Inventory;
 use App\Models\Item;
 use App\Models\MaterialRequest;
@@ -26,6 +27,7 @@ class ExportController extends Controller
         'inventory' => 'report.inventory',
         'requests' => 'report.request',
         'npbg' => 'report.npbg',
+        'goods_issue' => 'report.npbg',
         'ppb' => 'report.ppb',
         'stock-opnames' => 'report.opname',
         'stock-movements' => 'report.stock_movement',
@@ -104,8 +106,16 @@ class ExportController extends Controller
             ],
             'npbg' => [
                 'Laporan NPBG',
+                ['No NPBG', 'Tgl NPBG', 'Deskripsi Barang', 'Kuantitas', 'Satuan', 'Peminta', 'Divisi', 'Pelanggan', 'Keterangan'],
+                Npbg::query()->orderBy('tgl_npbg')->lazy()->map(fn ($n) => [
+                    $n->no_npbg, $n->tgl_npbg?->toDateString(), $n->deskripsi_barang, $n->kuantitas,
+                    $n->satuan, $n->peminta, $n->divisi, $n->pelanggan, $n->keterangan,
+                ]),
+            ],
+            'goods_issue' => [
+                'Laporan Bukti Keluar Barang',
                 ['Nomor', 'Status', 'Klasifikasi', 'Gudang', 'Diambil Oleh', 'Tanggal'],
-                Npbg::query()->with('warehouse:id,code')->latest()->lazy()->map(fn ($n) => [
+                GoodsIssue::query()->with('warehouse:id,code')->latest()->lazy()->map(fn ($n) => [
                     $n->number, $n->status, $n->classification, $n->warehouse?->code,
                     $n->picked_up_by, $n->date?->toDateString(),
                 ]),

@@ -1,7 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useRequest, useRequestAction, usePhysicalCheck, useSetRequestRefs } from '@/features/requests/api'
-import { useCreateNpbgFromRequest } from '@/features/npbg/api'
+import { useCreateGoodsIssueFromRequest } from '@/features/goods-issues/api'
 import { useCreatePpbFromRequest } from '@/features/purchasing/api'
 import { useAuth } from '@/auth/AuthContext'
 import { apiErrorMessage } from '@/lib/api'
@@ -21,7 +21,7 @@ export function RequestDetailPage() {
   const { data: req, isLoading } = useRequest(requestId)
   const action = useRequestAction(requestId)
   const check = usePhysicalCheck(requestId)
-  const createNpbg = useCreateNpbgFromRequest()
+  const createGoodsIssue = useCreateGoodsIssueFromRequest()
   const createPpb = useCreatePpbFromRequest()
   const [err, setErr] = useState<string | null>(null)
 
@@ -51,8 +51,11 @@ export function RequestDetailPage() {
           <Field label="WhatsApp" value={req.requester_wa ?? '—'} />
           <Field label="Site" value={req.site?.code ?? '—'} />
           <Field label="Lokasi permintaan" value={<NetworkTag req={req} canSeeIp={hasPermission('request.review')} />} />
+          <Field label="Dibuat" value={new Date(req.created_at).toLocaleString('id-ID')} />
           <Field label="Dikirim" value={req.submitted_at ? new Date(req.submitted_at).toLocaleString('id-ID') : '—'} />
+          <Field label="Direview" value={req.reviewed_at ? new Date(req.reviewed_at).toLocaleString('id-ID') : '—'} />
           <Field label="Reviewer" value={req.reviewer?.name ?? '—'} />
+          <Field label="Selesai" value={req.completed_at ? new Date(req.completed_at).toLocaleString('id-ID') : '—'} />
           <div className="sm:col-span-3">
             <div className="text-muted-foreground">Keterangan</div>
             <div>{req.purpose || '—'}</div>
@@ -85,18 +88,18 @@ export function RequestDetailPage() {
         {req.status === 'UNDER_REVIEW' && hasPermission('request.reserve') && (
           <Button size="sm" onClick={() => run('reserve')}>Reserve Stok</Button>
         )}
-        {(req.status === 'RESERVED' || req.status === 'PARTIAL') && hasPermission('npbg.create') && (
+        {(req.status === 'RESERVED' || req.status === 'PARTIAL') && hasPermission('goods_issue.create') && (
           <Button
             size="sm"
-            disabled={createNpbg.isPending}
+            disabled={createGoodsIssue.isPending}
             onClick={() =>
-              createNpbg.mutate(requestId, {
-                onSuccess: (npbg) => navigate(`/npbg/${npbg.id}`),
+              createGoodsIssue.mutate(requestId, {
+                onSuccess: (goodsIssue) => navigate(`/goods-issues/${goodsIssue.id}`),
                 onError: (e) => setErr(apiErrorMessage(e)),
               })
             }
           >
-            Buat NPBG
+            Buat Bukti Keluar Barang
           </Button>
         )}
         {(req.status === 'PARTIAL' || req.status === 'NEED_PURCHASE') &&
@@ -212,7 +215,7 @@ function RefsCard({
     return (
       <Card>
         <CardContent className="grid grid-cols-2 gap-y-1 p-4 text-sm">
-          <Field label="No NPBG" value={npbgNo ?? 'Belum diisi Admin Gudang'} />
+          <Field label="No Bukti Keluar Barang" value={npbgNo ?? 'Belum diisi Admin Gudang'} />
           <Field label="Nomor PPB" value={ppbNo ?? 'Belum diisi Admin Gudang'} />
         </CardContent>
       </Card>
@@ -222,15 +225,15 @@ function RefsCard({
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-base">No NPBG &amp; Nomor PPB</CardTitle>
+        <CardTitle className="text-base">No Bukti Keluar Barang &amp; Nomor PPB</CardTitle>
       </CardHeader>
       <CardContent className="space-y-3">
         <p className="text-xs text-muted-foreground">
-          Diisi oleh Admin Gudang. Terisi otomatis saat NPBG / PPB dibuat dari request ini, atau isi manual di sini.
+          Diisi oleh Admin Gudang. Terisi otomatis saat Bukti Keluar Barang / PPB dibuat dari request ini, atau isi manual di sini.
         </p>
         <div className="grid gap-3 sm:grid-cols-2">
           <div className="space-y-1.5">
-            <Label>No NPBG</Label>
+            <Label>No Bukti Keluar Barang</Label>
             <Input value={npbg} onChange={(e) => setNpbg(e.target.value)} placeholder="mis. NA/25/IX/138" />
           </div>
           <div className="space-y-1.5">

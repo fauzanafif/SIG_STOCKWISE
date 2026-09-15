@@ -52,6 +52,7 @@ export interface MaterialRequest {
   reviewer?: { id: number; name: string } | null
   submitted_at: string | null
   reviewed_at: string | null
+  completed_at: string | null
   cancel_reason: string | null
   created_at: string
   items?: RequestLine[]

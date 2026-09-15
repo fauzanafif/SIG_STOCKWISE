@@ -1,110 +1,82 @@
-import { useState } from 'react'
-import { Pencil } from 'lucide-react'
+import { useEffect, useState } from 'react'
 import { useParams } from 'react-router-dom'
-import { useNpbg, useNpbgAction, useUpdateNpbg, type Npbg } from '@/features/npbg/api'
+import { Pencil } from 'lucide-react'
+import { useNpbg, useUpdateNpbg } from '@/features/npbg/api'
 import { useAuth } from '@/auth/AuthContext'
 import { apiErrorMessage } from '@/lib/api'
-import { ItemPicker } from '@/components/ItemPicker'
-import { DataTable, type Column } from '@/components/DataTable'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
-import { RequestStatusBadge } from '@/components/ui/request-badge'
-import type { NpbgLine } from '@/features/npbg/api'
-import type { ItemLookupResult } from '@/features/inventory/api'
+import { NpbgVerificationPanel } from '@/components/NpbgVerificationPanel'
+import type { Npbg, NpbgEditableFields } from '@/features/npbg/api'
 
-const lineColumns: Column<NpbgLine>[] = [
-  { key: 'no', header: '#', cell: (l) => l.item_no ?? '—' },
-  { key: 'code', header: 'Kode', cell: (l) => <span className="font-mono text-xs">{l.item_code ?? '—'}</span> },
-  { key: 'desc', header: 'Deskripsi', cell: (l) => l.description },
-  { key: 'qty', header: 'Qty', cell: (l) => `${l.qty} ${l.unit ?? ''}` },
-  { key: 'issued', header: 'Keluar', cell: (l) => l.qty_issued },
-]
+function Field({ label, value }: { label: string; value?: string | number | null }) {
+  return (
+    <div>
+      <div className="text-muted-foreground">{label}</div>
+      <div>{value ?? '—'}</div>
+    </div>
+  )
+}
 
-interface DraftLine {
-  key: string
-  item_id: number | null
-  code: string | null
-  description: string
-  qty: number
+function fmtDate(v: string | null) {
+  return v ? new Date(v).toLocaleDateString('id-ID') : '—'
 }
 
 function EditForm({ npbg, onDone }: { npbg: Npbg; onDone: () => void }) {
   const update = useUpdateNpbg(npbg.id)
-  const manual = npbg.material_request_id === null
-  const [requesterName, setRequesterName] = useState(npbg.requester ?? '')
-  const [customerName, setCustomerName] = useState(npbg.customer_name ?? '')
-  const [projectName, setProjectName] = useState(npbg.project_name ?? '')
-  const [assetRef, setAssetRef] = useState(npbg.asset_ref ?? '')
-  const [notes, setNotes] = useState(npbg.notes ?? '')
-  const [lines, setLines] = useState<DraftLine[]>(
-    (npbg.items ?? []).map((l) => ({ key: crypto.randomUUID(), item_id: l.item_id, code: l.item_code, description: l.description, qty: l.qty })),
-  )
+  const [form, setForm] = useState<NpbgEditableFields>({
+    tipe_npbg: npbg.tipe_npbg,
+    klasifikasi: npbg.klasifikasi,
+    deskripsi: npbg.deskripsi,
+    nama_proyek: npbg.nama_proyek,
+    no_seri_nopol: npbg.no_seri_nopol,
+    dikeluarkan_oleh: npbg.dikeluarkan_oleh,
+  })
   const [err, setErr] = useState<string | null>(null)
 
-  function addItem(it: ItemLookupResult) {
-    setLines((ls) => [...ls, { key: crypto.randomUUID(), item_id: it.id, code: it.code, description: it.description, qty: 1 }])
-  }
+  const set = (k: keyof NpbgEditableFields) => (e: React.ChangeEvent<HTMLInputElement>) =>
+    setForm((f) => ({ ...f, [k]: e.target.value || null }))
 
   return (
     <Card>
       <CardContent className="space-y-3 p-4">
-        <div className="grid grid-cols-2 gap-3">
-          <Input placeholder="Nama peminta" value={requesterName} onChange={(e) => setRequesterName(e.target.value)} />
-          <Input placeholder="Customer (opsional)" value={customerName} onChange={(e) => setCustomerName(e.target.value)} />
-          <Input placeholder="Proyek (opsional)" value={projectName} onChange={(e) => setProjectName(e.target.value)} />
-          <Input placeholder="Aset (opsional)" value={assetRef} onChange={(e) => setAssetRef(e.target.value)} />
+        <p className="text-xs text-muted-foreground">
+          Hanya field berikut yang bisa diubah manual — field lain mengikuti data Accurate dan akan diperbarui saat Sync Accurate.
+        </p>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <div className="space-y-1.5">
+            <label className="text-xs text-muted-foreground">Tipe NPBG</label>
+            <Input value={form.tipe_npbg ?? ''} onChange={set('tipe_npbg')} placeholder="mis. PENJUALAN" />
+          </div>
+          <div className="space-y-1.5">
+            <label className="text-xs text-muted-foreground">Klasifikasi</label>
+            <Input value={form.klasifikasi ?? ''} onChange={set('klasifikasi')} />
+          </div>
+          <div className="space-y-1.5">
+            <label className="text-xs text-muted-foreground">Nama Proyek</label>
+            <Input value={form.nama_proyek ?? ''} onChange={set('nama_proyek')} />
+          </div>
+          <div className="space-y-1.5">
+            <label className="text-xs text-muted-foreground">No Seri / Nopol</label>
+            <Input value={form.no_seri_nopol ?? ''} onChange={set('no_seri_nopol')} />
+          </div>
+          <div className="space-y-1.5">
+            <label className="text-xs text-muted-foreground">Dikeluarkan Oleh</label>
+            <Input value={form.dikeluarkan_oleh ?? ''} onChange={set('dikeluarkan_oleh')} />
+          </div>
+          <div className="space-y-1.5 sm:col-span-2">
+            <label className="text-xs text-muted-foreground">Deskripsi</label>
+            <Input value={form.deskripsi ?? ''} onChange={set('deskripsi')} />
+          </div>
         </div>
-        <Input placeholder="Catatan (opsional)" value={notes} onChange={(e) => setNotes(e.target.value)} />
-
-        {manual ? (
-          <>
-            <ItemPicker onPick={addItem} />
-            {lines.map((l) => (
-              <div key={l.key} className="flex items-center gap-2 text-sm">
-                <span className="flex-1">
-                  <span className="font-mono text-xs text-muted-foreground">{l.code}</span> {l.description}
-                </span>
-                <Input
-                  type="number" min={0} step="any" className="h-8 w-24"
-                  value={l.qty}
-                  onChange={(e) => setLines((ls) => ls.map((x) => (x.key === l.key ? { ...x, qty: Number(e.target.value) } : x)))}
-                />
-                <button className="text-xs text-destructive" onClick={() => setLines((ls) => ls.filter((x) => x.key !== l.key))}>
-                  hapus
-                </button>
-              </div>
-            ))}
-          </>
-        ) : (
-          <p className="text-xs text-muted-foreground">
-            Baris NPBG dari request mengikuti reservasi stok — qty tidak bisa diubah di sini, hanya bisa dibatalkan.
-          </p>
-        )}
-
         {err && <p className="text-sm text-destructive">{err}</p>}
         <div className="flex justify-end gap-2">
-          <Button size="sm" variant="outline" onClick={onDone}>
-            Batal
-          </Button>
+          <Button size="sm" variant="outline" onClick={onDone}>Batal</Button>
           <Button
             size="sm"
             disabled={update.isPending}
-            onClick={() =>
-              update.mutate(
-                {
-                  requester_name: requesterName || undefined,
-                  customer_name: customerName || undefined,
-                  project_name: projectName || undefined,
-                  asset_ref: assetRef || undefined,
-                  notes: notes || undefined,
-                  items: manual
-                    ? lines.map((l) => ({ item_id: l.item_id ?? undefined, description_raw: l.description, qty: l.qty }))
-                    : undefined,
-                },
-                { onSuccess: onDone, onError: (e) => setErr(apiErrorMessage(e)) },
-              )
-            }
+            onClick={() => update.mutate(form, { onSuccess: onDone, onError: (e) => setErr(apiErrorMessage(e)) })}
           >
             Simpan
           </Button>
@@ -119,87 +91,65 @@ export function NpbgDetailPage() {
   const npbgId = Number(id)
   const { hasPermission } = useAuth()
   const { data: npbg, isLoading } = useNpbg(npbgId)
-  const action = useNpbgAction(npbgId)
-  const [pickedUpBy, setPickedUpBy] = useState('')
-  const [err, setErr] = useState<string | null>(null)
   const [editing, setEditing] = useState(false)
 
+  useEffect(() => setEditing(false), [npbgId])
+
   if (isLoading || !npbg) return <p className="text-muted-foreground">Memuat…</p>
-
-  const run = (name: string, body?: unknown) =>
-    action.mutate({ action: name, body }, { onError: (e) => setErr(apiErrorMessage(e)) })
-
   if (editing) return <EditForm npbg={npbg} onDone={() => setEditing(false)} />
 
   return (
     <div className="max-w-3xl space-y-4">
       <div className="flex items-start justify-between">
         <div>
-          <h1 className="font-mono text-lg font-semibold">{npbg.number}</h1>
-          <p className="text-sm text-muted-foreground">
-            {npbg.classification} · {npbg.type}
-            {npbg.request_number ? ` · dari ${npbg.request_number}` : ''}
-          </p>
+          <h1 className="font-mono text-lg font-semibold">{npbg.no_npbg ?? '—'}</h1>
+          <p className="text-sm text-muted-foreground">{fmtDate(npbg.tgl_npbg)}</p>
         </div>
-        <RequestStatusBadge status={npbg.status} />
-      </div>
-
-      <Card>
-        <CardContent className="grid grid-cols-2 gap-y-1 p-4 text-sm sm:grid-cols-3">
-          <Field label="Peminta" value={npbg.requester} />
-          <Field label="Gudang" value={npbg.warehouse?.code} />
-          <Field label="Tanggal" value={npbg.date ? new Date(npbg.date).toLocaleDateString('id-ID') : '—'} />
-          {npbg.picked_up_by && <Field label="Diambil oleh" value={npbg.picked_up_by} />}
-          {npbg.picked_up_at && (
-            <Field label="Waktu pickup" value={new Date(npbg.picked_up_at).toLocaleString('id-ID')} />
-          )}
-          {npbg.cancel_reason && <Field label="Alasan batal" value={npbg.cancel_reason} />}
-        </CardContent>
-      </Card>
-
-      <div className="flex flex-wrap items-center gap-2">
-        {['DRAFT', 'PREPARING'].includes(npbg.status) && hasPermission('npbg.update') && (
+        {hasPermission('npbg.update') && (
           <Button size="sm" variant="outline" onClick={() => setEditing(true)}>
             <Pencil className="size-4" /> Ubah
           </Button>
         )}
-        {npbg.status === 'PREPARING' && hasPermission('npbg.ready') && (
-          <Button size="sm" onClick={() => run('ready')}>Barang Siap</Button>
-        )}
-        {(npbg.status === 'READY_TO_PICKUP' || npbg.status === 'PREPARING') &&
-          hasPermission('npbg.pickup') && (
-            <>
-              <Input
-                placeholder="Nama pengambil"
-                className="h-9 w-48"
-                value={pickedUpBy}
-                onChange={(e) => setPickedUpBy(e.target.value)}
-              />
-              <Button size="sm" disabled={!pickedUpBy} onClick={() => run('pickup', { picked_up_by: pickedUpBy })}>
-                Konfirmasi Pickup
-              </Button>
-            </>
-          )}
-        {!['PICKED_UP', 'COMPLETED', 'CANCELLED'].includes(npbg.status) &&
-          hasPermission('npbg.cancel') && (
-            <Button size="sm" variant="destructive" onClick={() => run('cancel', { reason: 'Dibatalkan dari UI' })}>
-              Batalkan
-            </Button>
-          )}
       </div>
 
-      {err && <p className="text-sm text-destructive">{err}</p>}
+      <Card>
+        <CardContent className="grid grid-cols-2 gap-y-2 p-4 text-sm sm:grid-cols-3">
+          <Field label="Tgl NPBG" value={fmtDate(npbg.tgl_npbg)} />
+          <Field label="Shipdate" value={fmtDate(npbg.shipdate)} />
+          <Field label="Taxdate" value={fmtDate(npbg.taxdate)} />
+          <Field label="Tipe NPBG" value={npbg.tipe_npbg} />
+          <Field label="Klasifikasi" value={npbg.klasifikasi} />
+          <Field label="Divisi" value={npbg.divisi} />
+          <Field label="Pelanggan" value={npbg.pelanggan} />
+          <Field label="Nama Proyek" value={npbg.nama_proyek} />
+          <Field label="No Seri / Nopol" value={npbg.no_seri_nopol} />
+          <Field label="Dikeluarkan Oleh" value={npbg.dikeluarkan_oleh} />
+        </CardContent>
+      </Card>
 
-      <DataTable columns={lineColumns} rows={npbg.items ?? []} rowKey={(l) => l.id} />
-    </div>
-  )
-}
+      <Card>
+        <CardContent className="grid grid-cols-2 gap-y-2 p-4 text-sm sm:grid-cols-3">
+          <Field label="Deskripsi Barang" value={npbg.deskripsi_barang} />
+          <Field label="Kuantitas" value={npbg.kuantitas != null ? `${npbg.kuantitas} ${npbg.satuan ?? ''}` : null} />
+          <Field label="Peminta" value={npbg.peminta} />
+          <div className="sm:col-span-3">
+            <div className="text-muted-foreground">Deskripsi</div>
+            <div>{npbg.deskripsi ?? '—'}</div>
+          </div>
+          <div className="sm:col-span-3">
+            <div className="text-muted-foreground">Keterangan</div>
+            <div className="whitespace-pre-wrap">{npbg.keterangan ?? '—'}</div>
+          </div>
+        </CardContent>
+      </Card>
 
-function Field({ label, value }: { label: string; value?: string | null }) {
-  return (
-    <div>
-      <div className="text-muted-foreground">{label}</div>
-      <div>{value ?? '—'}</div>
+      {npbg.accurate_synced_at && (
+        <p className="text-xs text-muted-foreground">
+          Terakhir sync dari Accurate: {new Date(npbg.accurate_synced_at).toLocaleString('id-ID')}
+        </p>
+      )}
+
+      <NpbgVerificationPanel npbgId={npbg.id} />
     </div>
   )
 }

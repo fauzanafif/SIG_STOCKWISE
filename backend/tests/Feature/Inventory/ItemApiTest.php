@@ -225,4 +225,26 @@ class ItemApiTest extends TestCase
 
         $this->assertDatabaseHas('items', ['id' => $item->id, 'blueprint_img_path' => 'blueprints/x.png']);
     }
+
+    /** Used by "custom" stock-opname scheduling to bulk-add every item matching a filter. */
+    public function test_ids_endpoint_returns_all_matching_ids_unpaginated(): void
+    {
+        $cat = Category::factory()->create(['name' => 'Automotive', 'path' => 'Automotive']);
+        $matching = Item::factory()->count(5)->create(['category_id' => $cat->id, 'is_active' => true]);
+        Item::factory()->create(['category_id' => $cat->id, 'is_active' => false]); // inactive, must be excluded
+        Item::factory()->create(); // different category, must be excluded
+
+        $this->actingAsRole('admin_gudang');
+        $res = $this->getJson("/api/items/ids?category_id={$cat->id}")->assertOk();
+
+        $res->assertJsonCount(5, 'data');
+        $this->assertEqualsCanonicalizing($matching->pluck('id')->all(), $res->json('data'));
+    }
+
+    public function test_ids_endpoint_requires_permission(): void
+    {
+        $this->getJson('/api/items/ids')->assertUnauthorized();
+        $this->actingAsRole('karyawan');
+        $this->getJson('/api/items/ids')->assertForbidden();
+    }
 }

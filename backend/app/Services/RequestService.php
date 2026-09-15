@@ -17,7 +17,7 @@ use Illuminate\Validation\ValidationException;
 /**
  * State machine for Material Requests (docs/status-flow.md §1, business-process.md BP-1).
  * DRAFT -> SUBMITTED -> UNDER_REVIEW -> (READY|PARTIAL|NEED_PURCHASE) -> RESERVED
- * PREPARING onwards is handled by the NPBG flow (PHASE 5).
+ * PREPARING onwards is handled by the Goods Issue flow (PHASE 5, App\Services\GoodsIssueService).
  */
 class RequestService
 {

@@ -11,7 +11,7 @@ import { Logo } from '@/components/Logo'
 const HIGHLIGHTS = [
   { icon: Boxes, text: 'Stok aktual, reserved & tersedia real-time' },
   { icon: BarChart3, text: 'Analisa safety stock & prioritas pembelian' },
-  { icon: ShieldCheck, text: 'Alur request → NPBG → PPB → penerimaan terkontrol' },
+  { icon: ShieldCheck, text: 'Alur request → pickup → PPB → penerimaan terkontrol' },
 ]
 
 export function LoginPage() {

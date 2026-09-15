@@ -3,6 +3,7 @@
 namespace App\Services\Accurate;
 
 use App\Models\Item;
+use App\Models\Npbg;
 use App\Models\SyncBatch;
 use App\Models\SyncLog;
 use App\Models\Unit;
@@ -18,10 +19,10 @@ use Throwable;
  * Firebird credentials in its own .env and refreshes the accurate_* MySQL
  * staging tables (read-only against Accurate, full mirror). Step 2 is pure
  * MySQL-to-MySQL work done here in PHP: match accurate_item.ITEMNO against
- * items.code and upsert, logging every row's outcome to sync_logs.
+ * items.code and upsert, logging every row's outcome to sync_logs. NPBG
+ * (accurate_arinv + accurate_arinvdet -> npbg) follows the same pattern.
  *
- * Scope for this phase (per the "Accurate sync foundation" brief): items only.
- * Accurate's stock figure is a company-wide total (no per-warehouse
+ * Items: Accurate's stock figure is a company-wide total (no per-warehouse
  * breakdown — see docs/ACCURATE_MAPPING.md §Warehouses), so it is written to
  * the reference-only `items.accurate_qty_onhand`/`accurate_qty_onorder`
  * columns, never into the per-warehouse `inventory` table.
@@ -73,7 +74,15 @@ class AccurateSyncService
             return $batch->fresh();
         }
 
-        $counts = $this->syncItems($batch);
+        $itemCounts = $this->syncItems($batch);
+        $npbgCounts = $this->syncNpbg($batch);
+        $counts = [
+            'total' => $itemCounts['total'] + $npbgCounts['total'],
+            'inserted' => $itemCounts['inserted'] + $npbgCounts['inserted'],
+            'updated' => $itemCounts['updated'] + $npbgCounts['updated'],
+            'skipped' => $itemCounts['skipped'] + $npbgCounts['skipped'],
+            'errors' => $itemCounts['errors'] + $npbgCounts['errors'],
+        ];
 
         $batch->update([
             'finished_at' => now(),
@@ -328,6 +337,142 @@ class AccurateSyncService
             'action' => 'INSERT',
             'message' => 'Barang baru dari Accurate.',
             'new_data' => ['code' => $created->code, 'description' => $created->description] + $category,
+        ];
+    }
+
+    /**
+     * NPBG = one row per ARINVDET line, joined back to its ARINV header.
+     * Identity is (ARINVOICEID, SEQ) — verified as ARINVDET's real primary key
+     * against the live schema (docs/GDB_ANALYSIS.md), not guessed; INVOICENO
+     * alone is not unique since one invoice can carry many detail lines.
+     *
+     * Only Accurate-owned columns are ever written here (no_npbg, tgl_npbg,
+     * shipdate, taxdate, divisi, pelanggan, keterangan, deskripsi_barang,
+     * kuantitas, satuan, peminta) — the Stockwise-owned enrichment columns
+     * (tipe_npbg, klasifikasi, deskripsi, nama_proyek, no_seri_nopol,
+     * dikeluarkan_oleh) are never touched by sync, so a user's prior edits
+     * survive a re-sync (brief §11).
+     *
+     * @return array{total:int,inserted:int,updated:int,skipped:int,errors:int}
+     */
+    protected function syncNpbg(SyncBatch $batch): array
+    {
+        $counts = ['total' => 0, 'inserted' => 0, 'updated' => 0, 'skipped' => 0, 'errors' => 0];
+
+        if (! DB::getSchemaBuilder()->hasTable('accurate_arinvdet') || ! DB::getSchemaBuilder()->hasTable('accurate_arinv')) {
+            return $counts;
+        }
+
+        $existing = Npbg::query()
+            ->select('id', 'accurate_arinvoice_id', 'accurate_seq', 'no_npbg', 'tgl_npbg', 'shipdate', 'taxdate',
+                'divisi', 'pelanggan', 'keterangan', 'deskripsi_barang', 'kuantitas', 'satuan', 'peminta', 'accurate_synced_at')
+            ->get()
+            ->keyBy(fn ($n) => $n->accurate_arinvoice_id.'-'.$n->accurate_seq);
+
+        $rows = DB::table('accurate_arinvdet as d')
+            ->join('accurate_arinv as h', 'd.ARINVOICEID', '=', 'h.ARINVOICEID')
+            ->select(
+                'd.ARINVOICEID as ARINVOICEID', 'd.SEQ as SEQ', 'd.ITEMOVDESC', 'd.QUANTITY', 'd.ITEMUNIT', 'd.ITEMRESERVED1',
+                'h.INVOICENO', 'h.INVOICEDATE', 'h.SHIPDATE', 'h.TAXDATE', 'h.PURCHASEORDERNO', 'h.SHIPTO1', 'h.DESCRIPTION'
+            )
+            ->orderBy('d.ARINVOICEID')->orderBy('d.SEQ')
+            ->get();
+
+        foreach ($rows as $row) {
+            $counts['total']++;
+
+            try {
+                $outcome = $this->syncOneNpbgLine($row, $existing);
+                $counts[$outcome['bucket']]++;
+
+                SyncLog::create([
+                    'sync_batch_id' => $batch->id,
+                    'entity' => 'npbg',
+                    'source_id' => $row->ARINVOICEID.'-'.$row->SEQ,
+                    'action' => $outcome['action'],
+                    'status' => 'SUCCESS',
+                    'message' => $outcome['message'],
+                    'old_data' => $outcome['old_data'] ?? null,
+                    'new_data' => $outcome['new_data'] ?? null,
+                ]);
+            } catch (Throwable $e) {
+                $counts['errors']++;
+
+                SyncLog::create([
+                    'sync_batch_id' => $batch->id,
+                    'entity' => 'npbg',
+                    'source_id' => ($row->ARINVOICEID ?? '?').'-'.($row->SEQ ?? '?'),
+                    'action' => 'ERROR',
+                    'status' => 'FAILED',
+                    'message' => $e->getMessage(),
+                ]);
+            }
+        }
+
+        return $counts;
+    }
+
+    /**
+     * @return array{bucket:string,action:string,message:string,old_data?:array,new_data?:array}
+     */
+    protected function syncOneNpbgLine(object $row, \Illuminate\Support\Collection $existingByKey): array
+    {
+        if ($row->ARINVOICEID === null || $row->SEQ === null) {
+            return ['bucket' => 'skipped', 'action' => 'SKIP', 'message' => 'ARINVOICEID/SEQ kosong — data tidak valid.'];
+        }
+
+        $key = $row->ARINVOICEID.'-'.$row->SEQ;
+
+        $new = [
+            'no_npbg' => $row->INVOICENO,
+            'tgl_npbg' => $row->INVOICEDATE,
+            'shipdate' => $row->SHIPDATE,
+            'taxdate' => $row->TAXDATE,
+            'divisi' => $row->PURCHASEORDERNO,
+            'pelanggan' => $row->SHIPTO1,
+            'keterangan' => $row->DESCRIPTION,
+            'deskripsi_barang' => $row->ITEMOVDESC,
+            'kuantitas' => $row->QUANTITY !== null ? (float) $row->QUANTITY : null,
+            'satuan' => $row->ITEMUNIT,
+            'peminta' => $row->ITEMRESERVED1,
+        ];
+
+        $existing = $existingByKey->get($key);
+
+        if ($existing) {
+            $old = collect($new)->keys()->mapWithKeys(fn ($f) => [$f => $existing->{$f} instanceof \Carbon\Carbon ? $existing->{$f}->toDateString() : $existing->{$f}])->all();
+            $unchanged = collect($new)->every(function ($v, $f) use ($existing) {
+                $current = $existing->{$f};
+                if ($current instanceof \Carbon\Carbon) {
+                    $current = $current->toDateString();
+                }
+
+                return (string) ($current ?? '') === (string) ($v ?? '');
+            });
+
+            if ($unchanged && $existing->accurate_synced_at !== null) {
+                return ['bucket' => 'skipped', 'action' => 'SKIP', 'message' => 'Tidak ada perubahan.'];
+            }
+
+            Npbg::where('id', $existing->id)->update($new + ['accurate_synced_at' => now()]);
+
+            return [
+                'bucket' => 'updated', 'action' => 'UPDATE',
+                'message' => "NPBG {$row->INVOICENO} baris {$row->SEQ} diperbarui.",
+                'old_data' => $old, 'new_data' => $new,
+            ];
+        }
+
+        Npbg::create($new + [
+            'accurate_arinvoice_id' => $row->ARINVOICEID,
+            'accurate_seq' => $row->SEQ,
+            'accurate_synced_at' => now(),
+        ]);
+
+        return [
+            'bucket' => 'inserted', 'action' => 'INSERT',
+            'message' => "NPBG baru dari invoice {$row->INVOICENO} baris {$row->SEQ}.",
+            'new_data' => $new,
         ];
     }
 

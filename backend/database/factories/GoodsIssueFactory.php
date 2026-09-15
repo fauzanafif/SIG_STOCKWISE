@@ -2,20 +2,20 @@
 
 namespace Database\Factories;
 
-use App\Models\Npbg;
+use App\Models\GoodsIssue;
 use App\Models\Site;
 use App\Models\Warehouse;
 use Illuminate\Database\Eloquent\Factories\Factory;
 
-/** @extends Factory<Npbg> */
-class NpbgFactory extends Factory
+/** @extends Factory<GoodsIssue> */
+class GoodsIssueFactory extends Factory
 {
-    protected $model = Npbg::class;
+    protected $model = GoodsIssue::class;
 
     public function definition(): array
     {
         return [
-            'number' => 'NPBG/NA/26/IX/'.$this->faker->unique()->numberBetween(1, 999),
+            'number' => 'BKB/NA/26/IX/'.$this->faker->unique()->numberBetween(1, 999),
             'prefix' => 'NA',
             'year' => 26,
             'month' => 9,

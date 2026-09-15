@@ -14,7 +14,7 @@ final class Rbac
         'super_admin' => ['Super Admin', 'Akses penuh: user, role, permission, master data, settings, audit log.'],
         'admin_gudang' => ['Admin Gudang', 'Review request, inventory, stock opname (validasi & approve), NPBG, PPB, laporan.'],
         'anak_gudang' => ['Anak Gudang / Stock Opname', 'Jadwal & input stok fisik, riwayat opname.'],
-        'lapangan_gudang' => ['Lapangan Gudang', 'Siapkan barang, NPBG prepare→ready, verifikasi pickup.'],
+        'lapangan_gudang' => ['Lapangan Gudang', 'Siapkan barang, NPBG prepare→ready, verifikasi pickup, hitung fisik stock opname.'],
         'purchasing' => ['Purchasing', 'PPB review, vendor, RFQ, PO, receiving, monitoring lead time.'],
         'bos' => ['BOS / Management', 'Executive dashboard & seluruh laporan — read-only.'],
         'karyawan' => ['Karyawan / Requester', 'Buat & lacak request sendiri, lihat NPBG sendiri, notifikasi.'],
@@ -92,17 +92,32 @@ final class Rbac
             'request.set_need_purchase' => 'Tandai request perlu pembelian',
             'request.cancel_any' => 'Batalkan request siapa pun',
         ],
+        // Bukti Keluar Barang — dokumen pickup-dari-request (dulu bernama "npbg";
+        // di-rename supaya grup 'npbg' di bawah bisa jadi NPBG asli dari Accurate).
+        'goods_issue' => [
+            'goods_issue.view' => 'Lihat semua Bukti Keluar Barang',
+            'goods_issue.view_own' => 'Lihat Bukti Keluar Barang sendiri',
+            'goods_issue.create' => 'Buat Bukti Keluar Barang',
+            'goods_issue.update' => 'Ubah Bukti Keluar Barang (draft)',
+            'goods_issue.cancel' => 'Batalkan Bukti Keluar Barang',
+            'goods_issue.prepare' => 'Siapkan barang',
+            'goods_issue.ready' => 'Set ready to pickup',
+            'goods_issue.pickup' => 'Konfirmasi pickup',
+            'goods_issue.print' => 'Cetak / PDF',
+            'goods_issue.export' => 'Export',
+        ],
+        // NPBG asli — mirror ARINV/ARINVDET dari Accurate (read-mostly, hanya field
+        // kepemilikan Stockwise yang bisa diubah). Diisi lewat Sync Accurate.
         'npbg' => [
-            'npbg.view' => 'Lihat semua NPBG',
-            'npbg.view_own' => 'Lihat NPBG sendiri',
-            'npbg.create' => 'Buat NPBG',
-            'npbg.update' => 'Ubah NPBG (draft)',
-            'npbg.cancel' => 'Batalkan NPBG',
-            'npbg.prepare' => 'Siapkan barang NPBG',
-            'npbg.ready' => 'Set NPBG ready to pickup',
-            'npbg.pickup' => 'Konfirmasi pickup NPBG',
-            'npbg.print' => 'Cetak / PDF NPBG',
-            'npbg.export' => 'Export NPBG',
+            'npbg.view' => 'Lihat NPBG',
+            'npbg.update' => 'Ubah field NPBG (tipe/klasifikasi/proyek/dll)',
+        ],
+        // Klarifikasi/Verifikasi Barang — kasus barang beda type/spesifikasi.
+        'npbg_verification' => [
+            'npbg.verification.view' => 'Lihat klarifikasi/verifikasi barang NPBG',
+            'npbg.verification.manage' => 'Ajukan/proses/tawarkan alternatif/eskalasi klarifikasi',
+            'npbg.verification.respond' => 'Terima/tolak barang alternatif (Maintenance)',
+            'npbg.verification.bos_decide' => 'Keputusan akhir BOS untuk klarifikasi',
         ],
         'stock_opname' => [
             'opname.view' => 'Lihat stock opname',
@@ -194,7 +209,7 @@ final class Rbac
             'profile.view_own', 'profile.update_own', 'notification.view_own',
             'item.lookup', // cari/pilih barang saat buat request (bukan halaman Master Barang)
             'request.create', 'request.view_own', 'request.update_own', 'request.cancel_own',
-            'npbg.view_own', 'npbg.print',
+            'goods_issue.view_own', 'goods_issue.print',
             'dashboard.karyawan',
             'export.excel', 'export.csv', 'export.pdf',
         ],
@@ -203,7 +218,11 @@ final class Rbac
             'profile.view_own', 'profile.update_own', 'notification.view_own',
             'inventory.view', 'stock_movement.view',
             'request.view',
-            'npbg.view', 'npbg.view_own', 'npbg.prepare', 'npbg.ready', 'npbg.pickup', 'npbg.print', 'npbg.export',
+            'goods_issue.view', 'goods_issue.view_own', 'goods_issue.prepare', 'goods_issue.ready',
+            'goods_issue.pickup', 'goods_issue.print', 'goods_issue.export', 'npbg.view',
+            'npbg.verification.view', 'npbg.verification.manage', 'npbg.verification.respond',
+            // Stock opname: admin gudang menjadwalkan, admin lapangan yang turun hitung fisik & input hasilnya.
+            'opname.view', 'opname.count', 'opname.submit',
             'lend.view', 'lend.create', 'lend.update', 'lend.return',
             'borrow.view', 'borrow.create', 'borrow.update', 'borrow.return',
             'stpp.view', 'stpp.create', 'stpp.update', 'stpp.return',
@@ -211,8 +230,8 @@ final class Rbac
             'maintenance.view', 'maintenance.create', 'maintenance.update', 'maintenance.complete',
             'manufacturing.view', 'manufacturing.create', 'manufacturing.update', 'manufacturing.complete',
             'used_return.view', 'used_return.create', 'used_return.update', 'used_return.close',
-            'dashboard.gudang', 'dashboard.lapangan',
-            'report.npbg', 'export.excel', 'export.csv', 'export.pdf',
+            'dashboard.gudang', 'dashboard.lapangan', 'dashboard.opname',
+            'report.npbg', 'report.opname', 'export.excel', 'export.csv', 'export.pdf',
         ],
 
         'anak_gudang' => [
@@ -237,8 +256,10 @@ final class Rbac
             'sync.accurate.view', 'sync.accurate.trigger',
             'request.view', 'request.review', 'request.physical_check', 'request.reserve',
             'request.set_need_purchase', 'request.cancel_any',
-            'npbg.view', 'npbg.view_own', 'npbg.create', 'npbg.update', 'npbg.cancel',
-            'npbg.prepare', 'npbg.ready', 'npbg.pickup', 'npbg.print', 'npbg.export',
+            'goods_issue.view', 'goods_issue.view_own', 'goods_issue.create', 'goods_issue.update', 'goods_issue.cancel',
+            'goods_issue.prepare', 'goods_issue.ready', 'goods_issue.pickup', 'goods_issue.print', 'goods_issue.export',
+            'npbg.view', 'npbg.update',
+            'npbg.verification.view', 'npbg.verification.manage', 'npbg.verification.respond',
             'opname.view', 'opname.schedule', 'opname.count', 'opname.submit',
             'opname.review', 'opname.approve', 'opname.reject', 'opname.request_recount',
             'ppb.view', 'ppb.view_own', 'ppb.create', 'ppb.update', 'ppb.submit',
@@ -274,7 +295,8 @@ final class Rbac
         'bos' => [
             'profile.view_own', 'profile.update_own', 'notification.view_own',
             'inventory.view', 'inventory.view_analysis', 'stock_movement.view', 'item.view',
-            'request.view', 'npbg.view', 'ppb.view', 'po.view', 'receiving.view',
+            'request.view', 'goods_issue.view', 'npbg.view', 'npbg.verification.view', 'npbg.verification.bos_decide',
+            'ppb.view', 'po.view', 'receiving.view',
             'opname.view',
             'lend.view', 'borrow.view', 'stpp.view', 'tyre.view', 'maintenance.view',
             'manufacturing.view', 'used_return.view',

@@ -23,7 +23,7 @@ class TyreChange extends Model
 
     public function outNpbg()
     {
-        return $this->belongsTo(Npbg::class, 'out_npbg_id');
+        return $this->belongsTo(GoodsIssue::class, 'out_npbg_id');
     }
 
     public function inRi()

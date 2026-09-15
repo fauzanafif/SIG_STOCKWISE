@@ -50,6 +50,7 @@ export function ReceivingDetailPage() {
           <Field label="Gudang" value={ri.warehouse} />
           <Field label="No. Surat Jalan" value={ri.surat_jalan_no} />
           <Field label="Sumber" value={ri.source_type} />
+          <Field label="Dibuat" value={new Date(ri.created_at).toLocaleString('id-ID')} />
           {ri.confirmed_at && <Field label="Dikonfirmasi" value={new Date(ri.confirmed_at).toLocaleString('id-ID')} />}
           {ri.notes && <Field label="Catatan" value={ri.notes} />}
         </CardContent>

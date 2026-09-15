@@ -4,12 +4,12 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\BorrowTransaction;
+use App\Models\GoodsIssue;
 use App\Models\Inventory;
 use App\Models\InventoryAnalysisRun;
 use App\Models\LendTransaction;
 use App\Models\MaintenanceOrder;
 use App\Models\MaterialRequest;
-use App\Models\Npbg;
 use App\Models\Ppb;
 use App\Models\PurchaseOrder;
 use App\Models\Receiving;
@@ -71,12 +71,12 @@ class DashboardController extends Controller
                 ->map(fn ($r) => ['id' => $r->id, 'number' => $r->number, 'status' => $r->status, 'date' => $r->created_at?->toDateString()]);
         }
 
-        // ---- NPBG / pickup ----
-        if ($user->hasPermission('npbg.view') || $user->hasPermission('npbg.view_own')) {
-            $q = $user->hasPermission('npbg.view') ? Npbg::query() : Npbg::query()->where('requester_id', $user->id);
-            $cards[] = ['key' => 'npbg_ready', 'label' => 'NPBG siap diambil', 'tone' => 'default',
+        // ---- Bukti Keluar Barang / pickup ----
+        if ($user->hasPermission('goods_issue.view') || $user->hasPermission('goods_issue.view_own')) {
+            $q = $user->hasPermission('goods_issue.view') ? GoodsIssue::query() : GoodsIssue::query()->where('requester_id', $user->id);
+            $cards[] = ['key' => 'goods_issue_ready', 'label' => 'Siap diambil', 'tone' => 'default',
                 'value' => (clone $q)->where('status', 'READY_TO_PICKUP')->count()];
-            $cards[] = ['key' => 'npbg_prep', 'label' => 'NPBG disiapkan', 'tone' => 'warning',
+            $cards[] = ['key' => 'goods_issue_prep', 'label' => 'Sedang disiapkan', 'tone' => 'warning',
                 'value' => (clone $q)->where('status', 'PREPARING')->count()];
         }
 

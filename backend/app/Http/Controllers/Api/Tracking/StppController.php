@@ -44,7 +44,7 @@ class StppController extends Controller
             'holder_name_raw' => ['nullable', 'string', 'max:150'],
             'placement_department_id' => ['nullable', 'integer', 'exists:departments,id'],
             'placement_raw' => ['nullable', 'string', 'max:80'],
-            'out_npbg_id' => ['nullable', 'integer', 'exists:npbg,id'],
+            'out_npbg_id' => ['nullable', 'integer', 'exists:goods_issues,id'],
             'out_date' => ['nullable', 'date'],
             'out_note' => ['nullable', 'string', 'max:255'],
         ]);
@@ -94,7 +94,7 @@ class StppController extends Controller
             'holder_name_raw' => ['nullable', 'string', 'max:150'],
             'placement_department_id' => ['nullable', 'integer', 'exists:departments,id'],
             'placement_raw' => ['nullable', 'string', 'max:80'],
-            'out_npbg_id' => ['nullable', 'integer', 'exists:npbg,id'],
+            'out_npbg_id' => ['nullable', 'integer', 'exists:goods_issues,id'],
             'out_date' => ['nullable', 'date'],
         ]);
 

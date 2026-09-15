@@ -16,7 +16,8 @@ interface Dataset {
 const DATASETS: Dataset[] = [
   { key: 'inventory', label: 'Inventory', description: 'Stok aktual, reserved & tersedia per gudang', permission: 'report.inventory' },
   { key: 'requests', label: 'Request Barang', description: 'Seluruh permintaan barang & statusnya', permission: 'report.request' },
-  { key: 'npbg', label: 'NPBG', description: 'Nota pengeluaran barang gudang', permission: 'report.npbg' },
+  { key: 'npbg', label: 'NPBG', description: 'Mirror ARINV/ARINVDET dari Accurate', permission: 'report.npbg' },
+  { key: 'goods_issue', label: 'Bukti Keluar Barang', description: 'Pickup barang dari request', permission: 'report.npbg' },
   { key: 'ppb', label: 'PPB', description: 'Permintaan pembelian barang', permission: 'report.ppb' },
   { key: 'stock-opnames', label: 'Stock Opname', description: 'Riwayat opname & selisih', permission: 'report.opname' },
   { key: 'stock-movements', label: 'Pergerakan Stok', description: 'Kartu stok / ledger lengkap', permission: 'report.stock_movement' },

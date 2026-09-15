@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Models\Inventory;
+use App\Models\Item;
 use App\Models\StockAdjustment;
 use App\Models\StockOpname;
 use App\Models\StockOpnameItem;
@@ -25,7 +26,16 @@ class StockOpnameService
         private readonly StockLedgerService $ledger,
     ) {}
 
-    /** @param list<int>|null $itemIds  null = FULL (all inventory in the warehouse) */
+    /**
+     * @param  list<int>|null  $itemIds  null = FULL/OPENING (every active item in Master Barang
+     *                                    assigned to this warehouse, or unassigned)
+     *
+     * Item lines come from Master Barang (`items`), not from `inventory` — the whole point of an
+     * OPENING opname (docs/assumptions.md NC-4: initial stock is established BY doing an opname)
+     * is that no inventory row exists yet, so requiring one first made that type permanently
+     * produce zero lines. A FULL/PARTIAL opname for an item with no inventory row yet also just
+     * starts that line's `system_qty` at 0 rather than silently dropping the item.
+     */
     public function schedule(User $user, int $warehouseId, string $date, string $type, ?array $itemIds): StockOpname
     {
         $warehouse = Warehouse::findOrFail($warehouseId);
@@ -41,15 +51,30 @@ class StockOpnameService
                 'created_by' => $user->id,
             ]);
 
-            $rows = Inventory::query()->where('warehouse_id', $warehouse->id)
-                ->when($itemIds, fn ($q) => $q->whereIn('item_id', $itemIds))
-                ->get();
+            $items = Item::query()
+                ->where('is_active', true)
+                ->when(
+                    $itemIds,
+                    fn ($q) => $q->whereIn('id', $itemIds),
+                    // No explicit item list (FULL/OPENING): every active item that either belongs
+                    // to this warehouse or isn't assigned to any warehouse yet (today, that's
+                    // effectively every item — default_warehouse_id isn't populated post-Accurate
+                    // sync — so this degrades to "all active items" rather than an empty opname).
+                    fn ($q) => $q->where(fn ($w) => $w->where('default_warehouse_id', $warehouse->id)
+                        ->orWhereNull('default_warehouse_id'))
+                )
+                ->get(['id']);
 
-            foreach ($rows as $inv) {
+            $systemQtyByItem = Inventory::query()
+                ->where('warehouse_id', $warehouse->id)
+                ->whereIn('item_id', $items->pluck('id'))
+                ->pluck('actual_qty', 'item_id');
+
+            foreach ($items as $item) {
                 $opname->items()->create([
-                    'item_id' => $inv->item_id,
+                    'item_id' => $item->id,
                     'warehouse_id' => $warehouse->id,
-                    'system_qty' => $inv->actual_qty,
+                    'system_qty' => $systemQtyByItem[$item->id] ?? 0,
                 ]);
             }
 

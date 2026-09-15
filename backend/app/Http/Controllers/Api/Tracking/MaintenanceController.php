@@ -100,7 +100,7 @@ class MaintenanceController extends Controller
             'workshop_id' => ['nullable', 'integer', 'exists:workshops,id'],
             'workshop_raw' => ['nullable', 'string', 'max:80'],
             'problem_detail' => ['nullable', 'string', 'max:2000'],
-            'npbg_id' => ['nullable', 'integer', 'exists:npbg,id'],
+            'npbg_id' => ['nullable', 'integer', 'exists:goods_issues,id'],
         ]);
         $this->service->addSub($maintenanceOrder, $data);
 

@@ -6,6 +6,7 @@ import {
   ClipboardList,
   CloudCog,
   FileSpreadsheet,
+  FileStack,
   Handshake,
   History,
   LayoutDashboard,
@@ -47,7 +48,8 @@ const NAV: NavGroup[] = [
     label: 'Operasional Gudang',
     items: [
       { to: '/requests', label: 'Request Barang', icon: ClipboardList, permissions: ['request.view', 'request.view_own'] },
-      { to: '/npbg', label: 'NPBG', icon: ScrollText, permissions: ['npbg.view', 'npbg.view_own'] },
+      { to: '/goods-issues', label: 'Bukti Keluar Barang', icon: ScrollText, permissions: ['goods_issue.view', 'goods_issue.view_own'] },
+      { to: '/npbg', label: 'NPBG', icon: FileStack, permissions: ['npbg.view'] },
       { to: '/stock-opnames', label: 'Stock Opname', icon: PackageCheck, permissions: ['opname.view'] },
     ],
   },

@@ -28,7 +28,7 @@ class MaintenanceOrderSub extends Model
 
     public function npbg()
     {
-        return $this->belongsTo(Npbg::class);
+        return $this->belongsTo(GoodsIssue::class);
     }
 
     public function ri()

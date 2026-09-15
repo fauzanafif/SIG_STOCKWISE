@@ -128,6 +128,7 @@ export interface PurchaseOrder {
   expected_date?: string | null
   notes?: string | null
   created_at: string
+  approved_at?: string | null
   items?: PoLine[]
   receivings?: { id: number; number: string; status: string }[]
 }

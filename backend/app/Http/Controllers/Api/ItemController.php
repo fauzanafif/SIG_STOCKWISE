@@ -38,6 +38,19 @@ class ItemController extends Controller
     }
 
     /**
+     * All active item IDs matching the current Master Barang filter (search/kategori/UOM/status —
+     * same scope as index(), just unpaginated). Used by "custom" stock-opname scheduling to bulk-add
+     * every item in a filtered set (e.g. one whole category) without the picker having to page
+     * through hundreds of results one screen at a time.
+     */
+    public function ids(Request $request): JsonResponse
+    {
+        $ids = Item::filtered($request)->where('items.is_active', true)->pluck('items.id');
+
+        return response()->json(['data' => $ids]);
+    }
+
+    /**
      * Distinct Kategori Anak 1/2/3 combinations actually present (from
      * Accurate sync) — one row per real branch, e.g.
      * {anak_1: "AUTOMOTIVE WHEELS & TIRES", anak_2: "BAN LUAR (TIRES)", anak_3: "BAN LUAR BENANG (NYLON TIRES)"}.

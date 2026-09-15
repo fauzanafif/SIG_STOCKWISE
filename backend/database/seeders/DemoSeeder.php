@@ -13,9 +13,9 @@ use App\Models\User;
 use App\Models\Vendor;
 use App\Models\Warehouse;
 use App\Models\Workshop;
+use App\Services\GoodsIssueService;
 use App\Services\Inventory\InventoryAnalyzer;
 use App\Services\Inventory\StockLedgerService;
-use App\Services\NpbgService;
 use App\Services\PpbService;
 use App\Services\PurchaseOrderService;
 use App\Services\ReceivingService;
@@ -98,7 +98,7 @@ class DemoSeeder extends Seeder
     {
         $tables = [
             'material_request_items', 'stock_reservations', 'material_requests',
-            'npbg_items', 'npbg', 'ppb_amendments', 'ppb_items', 'ppb',
+            'goods_issue_items', 'goods_issues', 'ppb_amendments', 'ppb_items', 'ppb',
             'purchase_order_items', 'purchase_orders', 'receiving_items', 'receivings',
             'stock_opname_items', 'stock_adjustments', 'stock_opnames',
             'lend_transactions', 'borrow_transactions', 'stpp_transactions', 'tyre_changes',
@@ -199,7 +199,7 @@ class DemoSeeder extends Seeder
     private function flowFullStock(): void
     {
         $reqSvc = app(RequestService::class);
-        $npbgSvc = app(NpbgService::class);
+        $goodsIssueSvc = app(GoodsIssueService::class);
         [$a, $b] = $this->itemList();
 
         foreach ([[$this->u['fauzan'], $a, 10.0, 'Perawatan rutin panel listrik'], [$this->u['rosul'], $b, 6.0, 'Ganti selang turbo unit W 8747 PD']] as $spec) {
@@ -219,9 +219,9 @@ class DemoSeeder extends Seeder
             $this->assertState($req->status, ['RESERVED', 'READY'], "Flow A reserve {$req->number}");
 
             $before = $this->actual($item);
-            $npbg = $npbgSvc->createFromRequest($req->fresh(), $this->u['admingudang']);
-            $npbgSvc->ready($npbgSvc->prepare($npbg));
-            $npbgSvc->pickup($npbg->fresh(), $this->u['adminlapangan'], $user->name, null);
+            $goodsIssue = $goodsIssueSvc->createFromRequest($req->fresh(), $this->u['admingudang']);
+            $goodsIssueSvc->ready($goodsIssueSvc->prepare($goodsIssue));
+            $goodsIssueSvc->pickup($goodsIssue->fresh(), $this->u['adminlapangan'], $user->name, null);
 
             $after = $this->actual($item);
             if (abs(($before - $qty) - $after) > 1e-6) {
@@ -229,7 +229,7 @@ class DemoSeeder extends Seeder
             }
             $req->refresh();
             $this->assertState($req->status, ['COMPLETED'], "Flow A selesai {$req->number}");
-            $this->log[] = "Flow A OK: {$req->number} → {$npbg->number} → PICKED_UP. {$item->code} {$before}→{$after}. npbg_no={$req->npbg_no}";
+            $this->log[] = "Flow A OK: {$req->number} → {$goodsIssue->number} → PICKED_UP. {$item->code} {$before}→{$after}. npbg_no={$req->npbg_no}";
         }
     }
 
@@ -328,7 +328,7 @@ class DemoSeeder extends Seeder
     private function flowInProgressLeftovers(): void
     {
         $reqSvc = app(RequestService::class);
-        $npbgSvc = app(NpbgService::class);
+        $goodsIssueSvc = app(GoodsIssueService::class);
         $items = $this->itemList();
 
         // 1 request SUBMITTED (menunggu review)
@@ -361,10 +361,10 @@ class DemoSeeder extends Seeder
         $reqSvc->review($r3->fresh(), $this->u['admingudang']);
         $reqSvc->physicalCheck($r3->items()->first(), $this->u['admingudang'], 'VERIFIED_MATCH', $this->actual($items[2]), null);
         $reqSvc->reserve($r3->fresh(), $this->u['admingudang']);
-        $npbg = $npbgSvc->createFromRequest($r3->fresh(), $this->u['admingudang']);
-        $npbgSvc->ready($npbgSvc->prepare($npbg));
+        $goodsIssue = $goodsIssueSvc->createFromRequest($r3->fresh(), $this->u['admingudang']);
+        $goodsIssueSvc->ready($goodsIssueSvc->prepare($goodsIssue));
 
-        $this->log[] = "Leftovers OK: {$r1->number} SUBMITTED, {$r2->number} UNDER_REVIEW, {$npbg->number} READY_TO_PICKUP.";
+        $this->log[] = "Leftovers OK: {$r1->number} SUBMITTED, {$r2->number} UNDER_REVIEW, {$goodsIssue->number} READY_TO_PICKUP.";
     }
 
     /** D — Stock Opname: hitung → submit → review (approve selisih). */

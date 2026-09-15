@@ -37,4 +37,14 @@ class StockOpname extends Model
     {
         return $this->belongsTo(User::class, 'counted_by');
     }
+
+    public function scheduledBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'created_by');
+    }
+
+    public function reviewedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'reviewed_by');
+    }
 }

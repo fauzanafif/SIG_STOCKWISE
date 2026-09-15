@@ -33,6 +33,6 @@ class BorrowTransaction extends Model
 
     public function returnNpbg()
     {
-        return $this->belongsTo(Npbg::class, 'return_npbg_id');
+        return $this->belongsTo(GoodsIssue::class, 'return_npbg_id');
     }
 }

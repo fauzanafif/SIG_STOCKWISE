@@ -36,7 +36,7 @@ class TyreChangeController extends Controller
             'asset_id' => ['required', 'integer', 'exists:assets,id'],
             'change_date' => ['nullable', 'date'],
             'position' => ['nullable', 'string', 'max:20'],
-            'out_npbg_id' => ['nullable', 'integer', 'exists:npbg,id'],
+            'out_npbg_id' => ['nullable', 'integer', 'exists:goods_issues,id'],
             'new_tyre_desc' => ['nullable', 'string', 'max:300'],
             'new_serial_raw' => ['nullable', 'string', 'max:80'],
             'old_tyre_desc' => ['nullable', 'string', 'max:300'],

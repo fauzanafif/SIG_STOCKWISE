@@ -82,7 +82,7 @@ export function SyncPage() {
             <>
               <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
                 <StatTile label="Total Dibaca" value={status.total_records} />
-                <StatTile label="Barang Baru" value={status.inserted_records} />
+                <StatTile label="Baris Baru" value={status.inserted_records} />
                 <StatTile label="Diperbarui" value={status.updated_records} />
                 <StatTile label="Dilewati" value={status.skipped_records} />
               </div>

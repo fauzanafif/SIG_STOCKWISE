@@ -47,7 +47,7 @@ class UsedReturnController extends Controller
     public function store(Request $request): JsonResponse
     {
         $data = $request->validate([
-            'npbg_id' => ['nullable', 'integer', 'exists:npbg,id'],
+            'npbg_id' => ['nullable', 'integer', 'exists:goods_issues,id'],
             'npbg_ref_raw' => ['nullable', 'string', 'max:60'],
             'return_date' => ['nullable', 'date'],
             'format' => ['nullable', 'in:COMPONENT_MATRIX,ITEM_LINE'],

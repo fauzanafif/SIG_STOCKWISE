@@ -1,0 +1,11 @@
+import { chromium } from '@playwright/test'
+const browser = await chromium.launch()
+const page = await browser.newPage()
+await page.goto('http://127.0.0.1:5173/login')
+await page.getByLabel('Username / Email').fill('admingudang')
+await page.getByLabel('Password').fill('Password@26')
+await page.getByRole('button', { name: 'Masuk' }).click()
+await page.getByRole('link', { name: 'Stock Opname' }).waitFor({ timeout: 15000 })
+await page.goto('http://127.0.0.1:5173/requests')
+await page.waitForTimeout(1500)
+console.log(await page.locator('table').innerHTML().catch(() => 'no table found'))
