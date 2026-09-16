@@ -18,7 +18,9 @@ const DATASETS: Dataset[] = [
   { key: 'requests', label: 'Request Barang', description: 'Seluruh permintaan barang & statusnya', permission: 'report.request' },
   { key: 'npbg', label: 'NPBG', description: 'Mirror ARINV/ARINVDET dari Accurate', permission: 'report.npbg' },
   { key: 'goods_issue', label: 'Bukti Keluar Barang', description: 'Pickup barang dari request', permission: 'report.npbg' },
-  { key: 'ppb', label: 'PPB', description: 'Permintaan pembelian barang', permission: 'report.ppb' },
+  { key: 'ppb', label: 'PPB', description: 'Mirror REQUISITION/REQUISITIONDET dari Accurate', permission: 'report.ppb' },
+  { key: 'purchase_proposal', label: 'Usulan Pembelian (Internal)', description: 'Alur draft-approve-order internal', permission: 'report.ppb' },
+  { key: 'ri', label: 'RI', description: 'Mirror APINV/APITMDET dari Accurate', permission: 'report.ri' },
   { key: 'stock-opnames', label: 'Stock Opname', description: 'Riwayat opname & selisih', permission: 'report.opname' },
   { key: 'stock-movements', label: 'Pergerakan Stok', description: 'Kartu stok / ledger lengkap', permission: 'report.stock_movement' },
 ]

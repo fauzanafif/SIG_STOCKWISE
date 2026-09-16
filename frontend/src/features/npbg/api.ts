@@ -11,6 +11,7 @@ export interface Npbg {
   taxdate: string | null
   tipe_npbg: string | null
   klasifikasi: string | null
+  kode_barang: string | null
   deskripsi_barang: string | null
   deskripsi: string | null
   kuantitas: number | null

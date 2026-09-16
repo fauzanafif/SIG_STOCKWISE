@@ -9,6 +9,8 @@ use App\Models\Item;
 use App\Models\MaterialRequest;
 use App\Models\Npbg;
 use App\Models\Ppb;
+use App\Models\PurchaseProposal;
+use App\Models\Ri;
 use App\Models\StockMovement;
 use App\Models\StockOpname;
 use App\Services\Export\DatasetExporter;
@@ -29,6 +31,8 @@ class ExportController extends Controller
         'npbg' => 'report.npbg',
         'goods_issue' => 'report.npbg',
         'ppb' => 'report.ppb',
+        'purchase_proposal' => 'report.ppb',
+        'ri' => 'report.ri',
         'stock-opnames' => 'report.opname',
         'stock-movements' => 'report.stock_movement',
     ];
@@ -106,9 +110,9 @@ class ExportController extends Controller
             ],
             'npbg' => [
                 'Laporan NPBG',
-                ['No NPBG', 'Tgl NPBG', 'Deskripsi Barang', 'Kuantitas', 'Satuan', 'Peminta', 'Divisi', 'Pelanggan', 'Keterangan'],
+                ['No NPBG', 'Tgl NPBG', 'Kode Barang', 'Deskripsi Barang', 'Kuantitas', 'Satuan', 'Peminta', 'Divisi', 'Pelanggan', 'Keterangan'],
                 Npbg::query()->orderBy('tgl_npbg')->lazy()->map(fn ($n) => [
-                    $n->no_npbg, $n->tgl_npbg?->toDateString(), $n->deskripsi_barang, $n->kuantitas,
+                    $n->no_npbg, $n->tgl_npbg?->toDateString(), $n->kode_barang, $n->deskripsi_barang, $n->kuantitas,
                     $n->satuan, $n->peminta, $n->divisi, $n->pelanggan, $n->keterangan,
                 ]),
             ],
@@ -122,9 +126,25 @@ class ExportController extends Controller
             ],
             'ppb' => [
                 'Laporan PPB',
+                ['No PPB', 'Tgl PPB', 'Status', 'Divisi', 'Kode Barang', 'Deskripsi Barang', 'Kuantitas', 'Satuan', 'Qty Dipesan', 'Qty Diterima', 'Peminta', 'Keterangan'],
+                Ppb::query()->orderBy('tgl_ppb')->lazy()->map(fn ($p) => [
+                    $p->no_ppb, $p->tgl_ppb?->toDateString(), $p->status, $p->divisi, $p->kode_barang, $p->deskripsi_barang,
+                    $p->kuantitas, $p->satuan, $p->qty_dipesan, $p->qty_diterima, $p->peminta, $p->keterangan,
+                ]),
+            ],
+            'purchase_proposal' => [
+                'Laporan Usulan Pembelian (Internal)',
                 ['Nomor', 'Status', 'Sumber Request', 'Jumlah Baris', 'Tanggal'],
-                Ppb::query()->withCount('items')->latest()->lazy()->map(fn ($p) => [
+                PurchaseProposal::query()->withCount('items')->latest()->lazy()->map(fn ($p) => [
                     $p->number, $p->status, $p->source_request_id, $p->items_count, $p->date?->toDateString(),
+                ]),
+            ],
+            'ri' => [
+                'Laporan RI',
+                ['No RI', 'Tgl RI', 'Divisi', 'Vendor', 'No PO', 'Kode Barang', 'Deskripsi Barang', 'Kuantitas', 'Satuan', 'Harga Satuan', 'Pemeriksa', 'Keterangan'],
+                Ri::query()->orderBy('tgl_ri')->lazy()->map(fn ($r) => [
+                    $r->no_ri, $r->tgl_ri?->toDateString(), $r->divisi, $r->vendor, $r->no_po, $r->kode_barang, $r->deskripsi_barang,
+                    $r->kuantitas, $r->satuan, $r->harga_satuan, $r->pemeriksa, $r->keterangan,
                 ]),
             ],
             'stock-opnames' => [

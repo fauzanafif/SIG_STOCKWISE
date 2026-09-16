@@ -15,6 +15,7 @@ import {
   Menu,
   Package,
   PackageCheck,
+  Receipt,
   Recycle,
   ScrollText,
   ShieldCheck,
@@ -56,9 +57,11 @@ const NAV: NavGroup[] = [
   {
     label: 'Pengadaan',
     items: [
-      { to: '/ppb', label: 'PPB', icon: FileSpreadsheet, permissions: ['ppb.view', 'ppb.view_own'] },
+      { to: '/ppb', label: 'PPB', icon: FileStack, permissions: ['ppb.view'] },
+      { to: '/purchase-proposals', label: 'Usulan Pembelian', icon: FileSpreadsheet, permissions: ['purchase_proposal.view', 'purchase_proposal.view_own'] },
       { to: '/purchase-orders', label: 'Purchase Order', icon: ShoppingCart, permissions: ['po.view'] },
       { to: '/receivings', label: 'Penerimaan', icon: Truck, permissions: ['receiving.view'] },
+      { to: '/ri', label: 'RI', icon: Receipt, permissions: ['ri.view'] },
     ],
   },
   {
@@ -79,7 +82,7 @@ const NAV: NavGroup[] = [
       { to: '/items', label: 'Master Barang', icon: Package, permissions: ['item.view'] },
       { to: '/safety-stocks', label: 'Safety Stock', icon: ShieldCheck, permissions: ['item.safety_stock.view'] },
       { to: '/inventory/analysis', label: 'Analisis Inventory', icon: Boxes, permissions: ['inventory.view_analysis'] },
-      { to: '/reports', label: 'Laporan & Export', icon: FileSpreadsheet, permissions: ['report.inventory', 'report.request', 'report.npbg', 'report.ppb', 'report.opname', 'report.stock_movement'] },
+      { to: '/reports', label: 'Laporan & Export', icon: FileSpreadsheet, permissions: ['report.inventory', 'report.request', 'report.npbg', 'report.ppb', 'report.ri', 'report.opname', 'report.stock_movement'] },
     ],
   },
   {

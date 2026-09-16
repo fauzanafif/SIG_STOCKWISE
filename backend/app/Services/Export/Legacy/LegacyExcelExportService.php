@@ -8,8 +8,8 @@ use App\Models\Item;
 use App\Models\LendTransaction;
 use App\Models\MaintenanceOrderSub;
 use App\Models\ManufacturingOrderSub;
-use App\Models\Ppb;
-use App\Models\PpbAmendment;
+use App\Models\PurchaseProposal;
+use App\Models\PurchaseProposalAmendment;
 use App\Models\Receiving;
 use App\Models\StppTransaction;
 use App\Models\TyreChange;
@@ -205,7 +205,7 @@ class LegacyExcelExportService
         $this->writeHeaderRow($sheet, 1, ['Tgl PPB', 'No PPB', 'Deskripsi Barang', 'Kuantitas', 'Satuan', 'Peminta', 'Divisi', 'Keterangan', 'Status']);
         $sheet->freezePane('A2');
         $row = 2;
-        Ppb::query()->with(['items.item', 'items.unit', 'requester', 'department'])->orderBy('date')
+        PurchaseProposal::query()->with(['items.item', 'items.unit', 'requester', 'department'])->orderBy('date')
             ->chunk(200, function ($ppbs) use ($sheet, &$row) {
                 foreach ($ppbs as $ppb) {
                     foreach ($ppb->items as $line) {
@@ -248,7 +248,7 @@ class LegacyExcelExportService
         $this->writeHeaderRow($sheet3, 1, ['Tgl Perubahan', 'No PPB', 'Deskripsi Barang', 'Kuantitas', 'Satuan', 'Peminta', 'Divisi', 'Tipe Perubahan', 'Keterangan']);
         $sheet3->freezePane('A2');
         $row = 2;
-        PpbAmendment::query()->with(['ppb.requester', 'ppb.department', 'ppbItem.item', 'ppbItem.unit'])->orderBy('date')
+        PurchaseProposalAmendment::query()->with(['ppb.requester', 'ppb.department', 'ppbItem.item', 'ppbItem.unit'])->orderBy('date')
             ->chunk(200, function ($rows) use ($sheet3, &$row) {
                 foreach ($rows as $a) {
                     $sheet3->fromArray([

@@ -5,8 +5,8 @@ namespace Tests\Feature\Purchasing;
 use App\Models\Inventory;
 use App\Models\Item;
 use App\Models\MaterialRequest;
-use App\Models\Ppb;
 use App\Models\PurchaseOrder;
+use App\Models\PurchaseProposal;
 use App\Models\Site;
 use App\Models\Vendor;
 use App\Models\Warehouse;
@@ -56,17 +56,17 @@ class PurchasingFlowTest extends TestCase
         $this->postJson("/api/requests/{$req->id}/reserve")->assertOk()->assertJsonPath('data.status', 'PARTIAL');
         $this->assertSame(15.0, (float) $req->items()->first()->qty_to_purchase);
 
-        // PPB from request
-        $ppb = $this->postJson('/api/ppb/from-request', ['material_request_id' => $req->id])
+        // PPB (usulan pembelian internal) from request
+        $ppb = $this->postJson('/api/purchase-proposals/from-request', ['material_request_id' => $req->id])
             ->assertCreated()->json('data');
-        $this->assertMatchesRegularExpression('#^PPB/NA/\d+/[IVX]+/\d{3}$#', $ppb['number']);
-        $this->postJson("/api/ppb/{$ppb['id']}/submit")->assertOk();
+        $this->assertMatchesRegularExpression('#^UPB/NA/\d+/[IVX]+/\d{3}$#', $ppb['number']);
+        $this->postJson("/api/purchase-proposals/{$ppb['id']}/submit")->assertOk();
 
         $this->actingAsRole('purchasing', ['site_id' => $this->site->id]);
-        $this->postJson("/api/ppb/{$ppb['id']}/review");
-        $this->postJson("/api/ppb/{$ppb['id']}/approve")->assertOk()->assertJsonPath('data.status', 'APPROVED');
+        $this->postJson("/api/purchase-proposals/{$ppb['id']}/review");
+        $this->postJson("/api/purchase-proposals/{$ppb['id']}/approve")->assertOk()->assertJsonPath('data.status', 'APPROVED');
 
-        $ppbModel = Ppb::with('items')->find($ppb['id']);
+        $ppbModel = PurchaseProposal::with('items')->find($ppb['id']);
         $ppbLine = $ppbModel->items->first();
         $this->assertSame(15.0, (float) $ppbLine->qty);
 
@@ -109,7 +109,7 @@ class PurchasingFlowTest extends TestCase
 
         $this->assertSame(20.0, (float) Inventory::where('item_id', $item->id)->first()->actual_qty);
         $this->assertSame('RECEIVED', PurchaseOrder::find($po['id'])->status);
-        $this->assertSame('RECEIVED', Ppb::find($ppb['id'])->status);
+        $this->assertSame('RECEIVED', PurchaseProposal::find($ppb['id'])->status);
         $this->assertDatabaseHas('stock_movements', ['movement_type' => 'RECEIVING']);
     }
 
@@ -123,12 +123,12 @@ class PurchasingFlowTest extends TestCase
         $this->actingAsRole('admin_gudang', ['site_id' => $this->site->id]);
         $item = Item::factory()->create();
 
-        $ppb = $this->postJson('/api/ppb', [
+        $ppb = $this->postJson('/api/purchase-proposals', [
             'items' => [['item_id' => $item->id, 'qty' => 3]],
         ])->assertCreated()->json('data');
 
-        $this->postJson("/api/ppb/{$ppb['id']}/submit")->assertOk();
-        $this->postJson("/api/ppb/{$ppb['id']}/reject", ['reason' => 'tidak jadi'])->assertOk()
+        $this->postJson("/api/purchase-proposals/{$ppb['id']}/submit")->assertOk();
+        $this->postJson("/api/purchase-proposals/{$ppb['id']}/reject", ['reason' => 'tidak jadi'])->assertOk()
             ->assertJsonPath('data.status', 'CANCELLED');
     }
 
@@ -137,29 +137,29 @@ class PurchasingFlowTest extends TestCase
         $this->actingAsRole('admin_gudang', ['site_id' => $this->site->id]);
         $item = Item::factory()->create();
 
-        $ppb = $this->postJson('/api/ppb', ['items' => [['item_id' => $item->id, 'qty' => 3]]])
+        $ppb = $this->postJson('/api/purchase-proposals', ['items' => [['item_id' => $item->id, 'qty' => 3]]])
             ->assertCreated()->json('data');
 
-        $this->putJson("/api/ppb/{$ppb['id']}", [
+        $this->putJson("/api/purchase-proposals/{$ppb['id']}", [
             'notes' => 'revisi qty', 'items' => [['item_id' => $item->id, 'qty' => 5]],
         ])->assertOk()
             ->assertJsonPath('data.notes', 'revisi qty')
             ->assertJsonPath('data.items.0.qty', 5);
 
-        $this->postJson("/api/ppb/{$ppb['id']}/submit")->assertOk();
-        $this->putJson("/api/ppb/{$ppb['id']}", ['notes' => 'coba edit setelah submit'])->assertStatus(422);
-        $this->deleteJson("/api/ppb/{$ppb['id']}")->assertStatus(422);
+        $this->postJson("/api/purchase-proposals/{$ppb['id']}/submit")->assertOk();
+        $this->putJson("/api/purchase-proposals/{$ppb['id']}", ['notes' => 'coba edit setelah submit'])->assertStatus(422);
+        $this->deleteJson("/api/purchase-proposals/{$ppb['id']}")->assertStatus(422);
 
-        $ppb2 = $this->postJson('/api/ppb', ['items' => [['item_id' => $item->id, 'qty' => 1]]])
+        $ppb2 = $this->postJson('/api/purchase-proposals', ['items' => [['item_id' => $item->id, 'qty' => 1]]])
             ->assertCreated()->json('data');
-        $this->deleteJson("/api/ppb/{$ppb2['id']}")->assertOk();
-        $this->assertDatabaseMissing('ppb', ['id' => $ppb2['id']]);
+        $this->deleteJson("/api/purchase-proposals/{$ppb2['id']}")->assertOk();
+        $this->assertDatabaseMissing('purchase_proposals', ['id' => $ppb2['id']]);
     }
 
     public function test_karyawan_cannot_approve_ppb(): void
     {
-        $ppb = Ppb::factory()->create(['status' => 'SUBMITTED', 'site_id' => $this->site->id]);
+        $ppb = PurchaseProposal::factory()->create(['status' => 'SUBMITTED', 'site_id' => $this->site->id]);
         $this->actingAsRole('karyawan', ['site_id' => $this->site->id]);
-        $this->postJson("/api/ppb/{$ppb->id}/approve")->assertForbidden();
+        $this->postJson("/api/purchase-proposals/{$ppb->id}/approve")->assertForbidden();
     }
 }

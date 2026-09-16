@@ -9,11 +9,18 @@ use App\Http\Resources\ItemResource;
 use App\Models\Item;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 
 class ItemController extends Controller
 {
-    public function index(Request $request): AnonymousResourceCollection
+    /**
+     * Real bug: this used to return Laravel's default paginator shape
+     * (`meta.current_page`), but every other list page in this app — and the
+     * shared frontend `Paginated<T>` type / `Pagination` component — expects
+     * `meta.page`. With that key missing, the pager's "next" button computed
+     * `undefined + 1 = NaN`, so it looked like paging (and therefore seeing
+     * more than the first 25 of 9,177 items) simply didn't work.
+     */
+    public function index(Request $request): JsonResponse
     {
         $perPage = min((int) $request->integer('per_page', 25), 100);
 
@@ -34,7 +41,17 @@ class ItemController extends Controller
         ];
         $query->orderBy($sortable[$column] ?? 'items.code', $direction);
 
-        return ItemResource::collection($query->paginate($perPage)->withQueryString());
+        $page = $query->paginate($perPage);
+
+        return response()->json([
+            'data' => ItemResource::collection($page->getCollection())->resolve(),
+            'meta' => [
+                'page' => $page->currentPage(),
+                'per_page' => $page->perPage(),
+                'total' => $page->total(),
+                'last_page' => $page->lastPage(),
+            ],
+        ]);
     }
 
     /**

@@ -1,8 +1,9 @@
 import { useMemo, useState } from 'react'
 import { useParams } from 'react-router-dom'
+import { Printer } from 'lucide-react'
 import { useOpname, useOpnameMutations } from '@/features/opname/api'
 import { useAuth } from '@/auth/AuthContext'
-import { apiErrorMessage } from '@/lib/api'
+import { api, apiErrorMessage } from '@/lib/api'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -28,6 +29,21 @@ export function OpnameDetailPage() {
   const [search, setSearch] = useState('')
   const [onlyUncounted, setOnlyUncounted] = useState(false)
   const [page, setPage] = useState(1)
+  const [printing, setPrinting] = useState(false)
+
+  async function printOpname() {
+    setPrinting(true)
+    setErr(null)
+    try {
+      const res = await api.get(`/api/stock-opnames/${opnameId}/print`, { responseType: 'blob' })
+      const url = URL.createObjectURL(res.data as Blob)
+      window.open(url, '_blank')
+    } catch (e) {
+      setErr(apiErrorMessage(e))
+    } finally {
+      setPrinting(false)
+    }
+  }
 
   // A FULL opname now covers every active item in Master Barang (thousands of
   // rows for this company) — rendering them all in one unpaginated table
@@ -114,6 +130,9 @@ export function OpnameDetailPage() {
             Selesaikan Review
           </Button>
         )}
+        <Button size="sm" variant="outline" disabled={printing} onClick={printOpname}>
+          <Printer className="size-4" /> {printing ? 'Menyiapkan…' : 'Print'}
+        </Button>
       </div>
 
       {err && <p className="text-sm text-destructive">{err}</p>}

@@ -30,6 +30,6 @@ class PurchaseOrderItem extends Model
 
     public function ppbItem()
     {
-        return $this->belongsTo(PpbItem::class);
+        return $this->belongsTo(PurchaseProposalItem::class, 'ppb_item_id');
     }
 }

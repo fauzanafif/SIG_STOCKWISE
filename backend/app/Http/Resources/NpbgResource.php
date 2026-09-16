@@ -19,6 +19,7 @@ class NpbgResource extends JsonResource
             'taxdate' => $this->taxdate?->toDateString(),
             'tipe_npbg' => $this->tipe_npbg,
             'klasifikasi' => $this->klasifikasi,
+            'kode_barang' => $this->kode_barang,
             'deskripsi_barang' => $this->deskripsi_barang,
             'deskripsi' => $this->deskripsi,
             'kuantitas' => $this->kuantitas,

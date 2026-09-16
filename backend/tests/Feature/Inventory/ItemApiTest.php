@@ -46,7 +46,31 @@ class ItemApiTest extends TestCase
         $res = $this->getJson('/api/items?per_page=10')->assertOk();
         $res->assertJsonCount(10, 'data')
             ->assertJsonPath('meta.total', 30)
-            ->assertJsonStructure(['data' => [['id', 'code', 'description', 'category', 'unit']], 'meta', 'links']);
+            ->assertJsonStructure(['data' => [['id', 'code', 'description', 'category', 'unit']], 'meta' => ['page', 'per_page', 'total', 'last_page']]);
+    }
+
+    /**
+     * Real bug: the response used to be Laravel's default paginator shape
+     * (meta.current_page), while the frontend's shared Pagination component
+     * reads meta.page — the "next" button silently computed NaN and users
+     * could never get past the first 25 items.
+     */
+    public function test_index_pagination_meta_matches_shared_frontend_contract(): void
+    {
+        Item::factory()->count(30)->create();
+        $this->actingAsRole('admin_gudang');
+
+        $page1 = $this->getJson('/api/items?per_page=10&page=1')->assertOk();
+        $page1->assertJsonPath('meta.page', 1)
+            ->assertJsonPath('meta.last_page', 3)
+            ->assertJsonPath('meta.per_page', 10)
+            ->assertJsonPath('meta.total', 30);
+
+        $page2 = $this->getJson('/api/items?per_page=10&page=2')->assertOk();
+        $page2->assertJsonPath('meta.page', 2);
+
+        // different rows on different pages — proves paging actually moves, not just the label
+        $this->assertNotEquals($page1->json('data.0.id'), $page2->json('data.0.id'));
     }
 
     public function test_search_and_filter(): void

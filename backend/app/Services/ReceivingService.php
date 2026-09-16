@@ -3,10 +3,10 @@
 namespace App\Services;
 
 use App\Models\Item;
-use App\Models\Ppb;
-use App\Models\PpbItem;
 use App\Models\PurchaseOrder;
 use App\Models\PurchaseOrderItem;
+use App\Models\PurchaseProposal;
+use App\Models\PurchaseProposalItem;
 use App\Models\Receiving;
 use App\Models\User;
 use App\Services\Inventory\StockLedgerService;
@@ -144,12 +144,12 @@ class ReceivingService
                     : ((float) $i->qty_received > 0 ? 'PARTIAL_RECEIVED' : $i->line_status),
             ]);
             if ($i->ppb_item_id) {
-                PpbItem::where('id', $i->ppb_item_id)->update(['qty_received' => $i->qty_received]);
+                PurchaseProposalItem::where('id', $i->ppb_item_id)->update(['qty_received' => $i->qty_received]);
             }
         }
 
         if ($fully && $po->ppb_id) {
-            Ppb::where('id', $po->ppb_id)->update(['status' => 'RECEIVED']);
+            PurchaseProposal::where('id', $po->ppb_id)->update(['status' => 'RECEIVED']);
         }
     }
 

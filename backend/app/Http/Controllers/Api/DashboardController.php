@@ -10,7 +10,7 @@ use App\Models\InventoryAnalysisRun;
 use App\Models\LendTransaction;
 use App\Models\MaintenanceOrder;
 use App\Models\MaterialRequest;
-use App\Models\Ppb;
+use App\Models\PurchaseProposal;
 use App\Models\PurchaseOrder;
 use App\Models\Receiving;
 use App\Models\StockMovement;
@@ -87,9 +87,9 @@ class DashboardController extends Controller
         }
 
         // ---- Purchasing ----
-        if ($user->hasPermission('ppb.view') || $user->hasPermission('po.view')) {
-            $cards[] = ['key' => 'ppb_open', 'label' => 'PPB menunggu', 'tone' => 'warning',
-                'value' => Ppb::whereIn('status', ['SUBMITTED', 'REVIEW'])->count()];
+        if ($user->hasPermission('purchase_proposal.view') || $user->hasPermission('po.view')) {
+            $cards[] = ['key' => 'ppb_open', 'label' => 'Usulan pembelian menunggu', 'tone' => 'warning',
+                'value' => PurchaseProposal::whereIn('status', ['SUBMITTED', 'REVIEW'])->count()];
             $cards[] = ['key' => 'po_open', 'label' => 'PO berjalan', 'tone' => 'default',
                 'value' => PurchaseOrder::whereIn('status', ['APPROVED', 'SENT', 'PARTIAL_RECEIVED'])->count()];
             $cards[] = ['key' => 'ri_checking', 'label' => 'Penerimaan diperiksa', 'tone' => 'warning',

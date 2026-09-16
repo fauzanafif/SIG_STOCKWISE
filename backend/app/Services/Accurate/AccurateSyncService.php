@@ -4,6 +4,8 @@ namespace App\Services\Accurate;
 
 use App\Models\Item;
 use App\Models\Npbg;
+use App\Models\Ppb;
+use App\Models\Ri;
 use App\Models\SyncBatch;
 use App\Models\SyncLog;
 use App\Models\Unit;
@@ -20,7 +22,9 @@ use Throwable;
  * staging tables (read-only against Accurate, full mirror). Step 2 is pure
  * MySQL-to-MySQL work done here in PHP: match accurate_item.ITEMNO against
  * items.code and upsert, logging every row's outcome to sync_logs. NPBG
- * (accurate_arinv + accurate_arinvdet -> npbg) follows the same pattern.
+ * (accurate_arinv + accurate_arinvdet -> npbg), PPB (accurate_requisition +
+ * accurate_requisitiondet -> ppb) and RI (accurate_apinv + accurate_apitmdet
+ * -> ri) all follow the same flat one-row-per-line pattern.
  *
  * Items: Accurate's stock figure is a company-wide total (no per-warehouse
  * breakdown — see docs/ACCURATE_MAPPING.md §Warehouses), so it is written to
@@ -76,12 +80,14 @@ class AccurateSyncService
 
         $itemCounts = $this->syncItems($batch);
         $npbgCounts = $this->syncNpbg($batch);
+        $ppbCounts = $this->syncPpb($batch);
+        $riCounts = $this->syncRi($batch);
         $counts = [
-            'total' => $itemCounts['total'] + $npbgCounts['total'],
-            'inserted' => $itemCounts['inserted'] + $npbgCounts['inserted'],
-            'updated' => $itemCounts['updated'] + $npbgCounts['updated'],
-            'skipped' => $itemCounts['skipped'] + $npbgCounts['skipped'],
-            'errors' => $itemCounts['errors'] + $npbgCounts['errors'],
+            'total' => $itemCounts['total'] + $npbgCounts['total'] + $ppbCounts['total'] + $riCounts['total'],
+            'inserted' => $itemCounts['inserted'] + $npbgCounts['inserted'] + $ppbCounts['inserted'] + $riCounts['inserted'],
+            'updated' => $itemCounts['updated'] + $npbgCounts['updated'] + $ppbCounts['updated'] + $riCounts['updated'],
+            'skipped' => $itemCounts['skipped'] + $npbgCounts['skipped'] + $ppbCounts['skipped'] + $riCounts['skipped'],
+            'errors' => $itemCounts['errors'] + $npbgCounts['errors'] + $ppbCounts['errors'] + $riCounts['errors'],
         ];
 
         $batch->update([
@@ -365,14 +371,14 @@ class AccurateSyncService
 
         $existing = Npbg::query()
             ->select('id', 'accurate_arinvoice_id', 'accurate_seq', 'no_npbg', 'tgl_npbg', 'shipdate', 'taxdate',
-                'divisi', 'pelanggan', 'keterangan', 'deskripsi_barang', 'kuantitas', 'satuan', 'peminta', 'accurate_synced_at')
+                'divisi', 'pelanggan', 'keterangan', 'kode_barang', 'deskripsi_barang', 'kuantitas', 'satuan', 'peminta', 'accurate_synced_at')
             ->get()
             ->keyBy(fn ($n) => $n->accurate_arinvoice_id.'-'.$n->accurate_seq);
 
         $rows = DB::table('accurate_arinvdet as d')
             ->join('accurate_arinv as h', 'd.ARINVOICEID', '=', 'h.ARINVOICEID')
             ->select(
-                'd.ARINVOICEID as ARINVOICEID', 'd.SEQ as SEQ', 'd.ITEMOVDESC', 'd.QUANTITY', 'd.ITEMUNIT', 'd.ITEMRESERVED1',
+                'd.ARINVOICEID as ARINVOICEID', 'd.SEQ as SEQ', 'd.ITEMNO', 'd.ITEMOVDESC', 'd.QUANTITY', 'd.ITEMUNIT', 'd.ITEMRESERVED1',
                 'h.INVOICENO', 'h.INVOICEDATE', 'h.SHIPDATE', 'h.TAXDATE', 'h.PURCHASEORDERNO', 'h.SHIPTO1', 'h.DESCRIPTION'
             )
             ->orderBy('d.ARINVOICEID')->orderBy('d.SEQ')
@@ -431,6 +437,7 @@ class AccurateSyncService
             'divisi' => $row->PURCHASEORDERNO,
             'pelanggan' => $row->SHIPTO1,
             'keterangan' => $row->DESCRIPTION,
+            'kode_barang' => $row->ITEMNO,
             'deskripsi_barang' => $row->ITEMOVDESC,
             'kuantitas' => $row->QUANTITY !== null ? (float) $row->QUANTITY : null,
             'satuan' => $row->ITEMUNIT,
@@ -472,6 +479,302 @@ class AccurateSyncService
         return [
             'bucket' => 'inserted', 'action' => 'INSERT',
             'message' => "NPBG baru dari invoice {$row->INVOICENO} baris {$row->SEQ}.",
+            'new_data' => $new,
+        ];
+    }
+
+    /**
+     * PPB = one row per REQUISITIONDET line, joined back to its REQUISITION
+     * header. Identity is (REQID, SEQ) — verified as REQUISITIONDET's real
+     * primary key against the live schema (docs/GDB_ANALYSIS.md), not guessed;
+     * REQNO alone is not unique since one requisition can carry many lines.
+     *
+     * Read-only mirror — unlike Npbg there are no Stockwise-owned columns to
+     * protect here (no manual enrichment fields exist for PPB).
+     *
+     * @return array{total:int,inserted:int,updated:int,skipped:int,errors:int}
+     */
+    protected function syncPpb(SyncBatch $batch): array
+    {
+        $counts = ['total' => 0, 'inserted' => 0, 'updated' => 0, 'skipped' => 0, 'errors' => 0];
+
+        if (! DB::getSchemaBuilder()->hasTable('accurate_requisitiondet') || ! DB::getSchemaBuilder()->hasTable('accurate_requisition')) {
+            return $counts;
+        }
+
+        $existing = Ppb::query()
+            ->select('id', 'accurate_reqid', 'accurate_seq', 'no_ppb', 'tgl_ppb', 'status', 'divisi', 'keterangan',
+                'kode_barang', 'deskripsi_barang', 'kuantitas', 'satuan', 'qty_dipesan', 'qty_diterima', 'peminta',
+                'catatan_baris', 'accurate_synced_at')
+            ->get()
+            ->keyBy(fn ($p) => $p->accurate_reqid.'-'.$p->accurate_seq);
+
+        $rows = DB::table('accurate_requisitiondet as d')
+            ->join('accurate_requisition as h', 'd.REQID', '=', 'h.REQID')
+            ->select(
+                'd.REQID as REQID', 'd.SEQ as SEQ', 'd.ITEMNO', 'd.ITEMOVDESC', 'd.QUANTITY', 'd.ITEMUNIT',
+                'd.QTYORDERED', 'd.QTYRECEIVED', 'd.ITEMRESERVED3', 'd.NOTES',
+                'h.REQNO', 'h.REQDATE', 'h.ISCLOSED', 'h.DESCRIPTION'
+            )
+            ->orderBy('d.REQID')->orderBy('d.SEQ')
+            ->get();
+
+        foreach ($rows as $row) {
+            $counts['total']++;
+
+            try {
+                $outcome = $this->syncOnePpbLine($row, $existing);
+                $counts[$outcome['bucket']]++;
+
+                SyncLog::create([
+                    'sync_batch_id' => $batch->id,
+                    'entity' => 'ppb',
+                    'source_id' => $row->REQID.'-'.$row->SEQ,
+                    'action' => $outcome['action'],
+                    'status' => 'SUCCESS',
+                    'message' => $outcome['message'],
+                    'old_data' => $outcome['old_data'] ?? null,
+                    'new_data' => $outcome['new_data'] ?? null,
+                ]);
+            } catch (Throwable $e) {
+                $counts['errors']++;
+
+                SyncLog::create([
+                    'sync_batch_id' => $batch->id,
+                    'entity' => 'ppb',
+                    'source_id' => ($row->REQID ?? '?').'-'.($row->SEQ ?? '?'),
+                    'action' => 'ERROR',
+                    'status' => 'FAILED',
+                    'message' => $e->getMessage(),
+                ]);
+            }
+        }
+
+        return $counts;
+    }
+
+    /**
+     * @return array{bucket:string,action:string,message:string,old_data?:array,new_data?:array}
+     */
+    protected function syncOnePpbLine(object $row, \Illuminate\Support\Collection $existingByKey): array
+    {
+        if ($row->REQID === null || $row->SEQ === null) {
+            return ['bucket' => 'skipped', 'action' => 'SKIP', 'message' => 'REQID/SEQ kosong — data tidak valid.'];
+        }
+
+        $key = $row->REQID.'-'.$row->SEQ;
+
+        $new = [
+            'no_ppb' => $row->REQNO,
+            'tgl_ppb' => $row->REQDATE,
+            'status' => $row->ISCLOSED === null ? null : ((int) $row->ISCLOSED === 1 ? 'CLOSED' : 'OPEN'),
+            'divisi' => $this->deriveDivisiFromDocNumber($row->REQNO),
+            'keterangan' => $row->DESCRIPTION,
+            'kode_barang' => $row->ITEMNO,
+            'deskripsi_barang' => $row->ITEMOVDESC,
+            'kuantitas' => $row->QUANTITY !== null ? (float) $row->QUANTITY : null,
+            'satuan' => $row->ITEMUNIT,
+            'qty_dipesan' => $row->QTYORDERED !== null ? (float) $row->QTYORDERED : null,
+            'qty_diterima' => $row->QTYRECEIVED !== null ? (float) $row->QTYRECEIVED : null,
+            'peminta' => $row->ITEMRESERVED3,
+            'catatan_baris' => $row->NOTES,
+        ];
+
+        $existing = $existingByKey->get($key);
+
+        if ($existing) {
+            $old = collect($new)->keys()->mapWithKeys(fn ($f) => [$f => $existing->{$f} instanceof \Carbon\Carbon ? $existing->{$f}->toDateString() : $existing->{$f}])->all();
+            $unchanged = collect($new)->every(function ($v, $f) use ($existing) {
+                $current = $existing->{$f};
+                if ($current instanceof \Carbon\Carbon) {
+                    $current = $current->toDateString();
+                }
+
+                return (string) ($current ?? '') === (string) ($v ?? '');
+            });
+
+            if ($unchanged && $existing->accurate_synced_at !== null) {
+                return ['bucket' => 'skipped', 'action' => 'SKIP', 'message' => 'Tidak ada perubahan.'];
+            }
+
+            Ppb::where('id', $existing->id)->update($new + ['accurate_synced_at' => now()]);
+
+            return [
+                'bucket' => 'updated', 'action' => 'UPDATE',
+                'message' => "PPB {$row->REQNO} baris {$row->SEQ} diperbarui.",
+                'old_data' => $old, 'new_data' => $new,
+            ];
+        }
+
+        Ppb::create($new + [
+            'accurate_reqid' => $row->REQID,
+            'accurate_seq' => $row->SEQ,
+            'accurate_synced_at' => now(),
+        ]);
+
+        return [
+            'bucket' => 'inserted', 'action' => 'INSERT',
+            'message' => "PPB baru dari requisition {$row->REQNO} baris {$row->SEQ}.",
+            'new_data' => $new,
+        ];
+    }
+
+    /**
+     * PPB and RI numbers are both literally formatted "{DOC}/{divisi}/{yy}/{roman}/{seq}"
+     * (e.g. PPB/ATK/25/IX/004, RI/NV/25/IX/001) — confirmed against live
+     * accurate_requisition and accurate_apinv data. Neither REQUISITION nor
+     * APINV has a dedicated divisi column (unlike ARINV.SHIPTO1 for NPBG), so
+     * it is parsed from the document number instead.
+     */
+    protected function deriveDivisiFromDocNumber(?string $number): ?string
+    {
+        if ($number === null) {
+            return null;
+        }
+
+        $parts = explode('/', $number);
+
+        return $parts[1] ?? null;
+    }
+
+    /**
+     * RI = one row per APITMDET line, joined back to its APINV header and to
+     * the vendor's name (accurate_persondata). Identity is (APINVOICEID, SEQ)
+     * — verified as APITMDET's real primary key against the live schema
+     * (docs/GDB_ANALYSIS.md); INVOICENO alone is not unique since one AP
+     * invoice can carry many item lines. APITMDET even carries a
+     * self-referencing RIID FK back to APINV, confirming APINV really is the
+     * RI document (its INVOICENO is literally "RI/{divisi}/{yy}/{roman}/{seq}").
+     *
+     * Read-only mirror — separate from the app's own `receivings` /
+     * `receiving_items` tables (the internal DRAFT->CHECKING->CONFIRMED
+     * workflow tied to a PO and to stock movements).
+     *
+     * @return array{total:int,inserted:int,updated:int,skipped:int,errors:int}
+     */
+    protected function syncRi(SyncBatch $batch): array
+    {
+        $counts = ['total' => 0, 'inserted' => 0, 'updated' => 0, 'skipped' => 0, 'errors' => 0];
+
+        if (! DB::getSchemaBuilder()->hasTable('accurate_apitmdet') || ! DB::getSchemaBuilder()->hasTable('accurate_apinv')) {
+            return $counts;
+        }
+
+        $existing = Ri::query()
+            ->select('id', 'accurate_apinvoice_id', 'accurate_seq', 'no_ri', 'tgl_ri', 'divisi', 'vendor', 'no_po',
+                'shipdate', 'keterangan', 'kode_barang', 'deskripsi_barang', 'kuantitas', 'satuan', 'harga_satuan',
+                'pemeriksa', 'accurate_synced_at')
+            ->get()
+            ->keyBy(fn ($r) => $r->accurate_apinvoice_id.'-'.$r->accurate_seq);
+
+        $rows = DB::table('accurate_apitmdet as d')
+            ->join('accurate_apinv as h', 'd.APINVOICEID', '=', 'h.APINVOICEID')
+            ->leftJoin('accurate_persondata as v', 'h.VENDORID', '=', 'v.ID')
+            ->select(
+                'd.APINVOICEID as APINVOICEID', 'd.SEQ as SEQ', 'd.ITEMNO', 'd.ITEMOVDESC', 'd.QUANTITY', 'd.ITEMUNIT',
+                'd.UNITPRICE', 'd.ITEMRESERVED3',
+                'h.INVOICENO', 'h.INVOICEDATE', 'h.PURCHASEORDERNO', 'h.SHIPDATE', 'h.DESCRIPTION',
+                'v.NAME as VENDORNAME'
+            )
+            ->orderBy('d.APINVOICEID')->orderBy('d.SEQ')
+            ->get();
+
+        foreach ($rows as $row) {
+            $counts['total']++;
+
+            try {
+                $outcome = $this->syncOneRiLine($row, $existing);
+                $counts[$outcome['bucket']]++;
+
+                SyncLog::create([
+                    'sync_batch_id' => $batch->id,
+                    'entity' => 'ri',
+                    'source_id' => $row->APINVOICEID.'-'.$row->SEQ,
+                    'action' => $outcome['action'],
+                    'status' => 'SUCCESS',
+                    'message' => $outcome['message'],
+                    'old_data' => $outcome['old_data'] ?? null,
+                    'new_data' => $outcome['new_data'] ?? null,
+                ]);
+            } catch (Throwable $e) {
+                $counts['errors']++;
+
+                SyncLog::create([
+                    'sync_batch_id' => $batch->id,
+                    'entity' => 'ri',
+                    'source_id' => ($row->APINVOICEID ?? '?').'-'.($row->SEQ ?? '?'),
+                    'action' => 'ERROR',
+                    'status' => 'FAILED',
+                    'message' => $e->getMessage(),
+                ]);
+            }
+        }
+
+        return $counts;
+    }
+
+    /**
+     * @return array{bucket:string,action:string,message:string,old_data?:array,new_data?:array}
+     */
+    protected function syncOneRiLine(object $row, \Illuminate\Support\Collection $existingByKey): array
+    {
+        if ($row->APINVOICEID === null || $row->SEQ === null) {
+            return ['bucket' => 'skipped', 'action' => 'SKIP', 'message' => 'APINVOICEID/SEQ kosong — data tidak valid.'];
+        }
+
+        $key = $row->APINVOICEID.'-'.$row->SEQ;
+
+        $new = [
+            'no_ri' => $row->INVOICENO,
+            'tgl_ri' => $row->INVOICEDATE,
+            'divisi' => $this->deriveDivisiFromDocNumber($row->INVOICENO),
+            'vendor' => $row->VENDORNAME,
+            'no_po' => $row->PURCHASEORDERNO,
+            'shipdate' => $row->SHIPDATE,
+            'keterangan' => $row->DESCRIPTION,
+            'kode_barang' => $row->ITEMNO,
+            'deskripsi_barang' => $row->ITEMOVDESC,
+            'kuantitas' => $row->QUANTITY !== null ? (float) $row->QUANTITY : null,
+            'satuan' => $row->ITEMUNIT,
+            'harga_satuan' => $row->UNITPRICE !== null ? (float) $row->UNITPRICE : null,
+            'pemeriksa' => $row->ITEMRESERVED3,
+        ];
+
+        $existing = $existingByKey->get($key);
+
+        if ($existing) {
+            $old = collect($new)->keys()->mapWithKeys(fn ($f) => [$f => $existing->{$f} instanceof \Carbon\Carbon ? $existing->{$f}->toDateString() : $existing->{$f}])->all();
+            $unchanged = collect($new)->every(function ($v, $f) use ($existing) {
+                $current = $existing->{$f};
+                if ($current instanceof \Carbon\Carbon) {
+                    $current = $current->toDateString();
+                }
+
+                return (string) ($current ?? '') === (string) ($v ?? '');
+            });
+
+            if ($unchanged && $existing->accurate_synced_at !== null) {
+                return ['bucket' => 'skipped', 'action' => 'SKIP', 'message' => 'Tidak ada perubahan.'];
+            }
+
+            Ri::where('id', $existing->id)->update($new + ['accurate_synced_at' => now()]);
+
+            return [
+                'bucket' => 'updated', 'action' => 'UPDATE',
+                'message' => "RI {$row->INVOICENO} baris {$row->SEQ} diperbarui.",
+                'old_data' => $old, 'new_data' => $new,
+            ];
+        }
+
+        Ri::create($new + [
+            'accurate_apinvoice_id' => $row->APINVOICEID,
+            'accurate_seq' => $row->SEQ,
+            'accurate_synced_at' => now(),
+        ]);
+
+        return [
+            'bucket' => 'inserted', 'action' => 'INSERT',
+            'message' => "RI baru dari invoice {$row->INVOICENO} baris {$row->SEQ}.",
             'new_data' => $new,
         ];
     }

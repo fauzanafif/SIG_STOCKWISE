@@ -5,8 +5,8 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\NpbgResource;
 use App\Models\Npbg;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 
 /**
  * NPBG — Accurate ARINV/ARINVDET mirror. Read-mostly: rows only ever come from
@@ -15,13 +15,14 @@ use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
  */
 class NpbgController extends Controller
 {
-    public function index(Request $request): AnonymousResourceCollection
+    public function index(Request $request): JsonResponse
     {
         $query = Npbg::query()->withCount('verifications')->with('latestVerification');
 
         if ($s = $request->string('search')->trim()->value()) {
             $query->where(function ($q) use ($s) {
                 $q->where('no_npbg', 'like', "%{$s}%")
+                    ->orWhere('kode_barang', 'like', "%{$s}%")
                     ->orWhere('deskripsi_barang', 'like', "%{$s}%")
                     ->orWhere('peminta', 'like', "%{$s}%")
                     ->orWhere('divisi', 'like', "%{$s}%")
@@ -38,9 +39,13 @@ class NpbgController extends Controller
 
         $query->orderByDesc('tgl_npbg')->orderByDesc('id');
 
-        return NpbgResource::collection(
-            $query->paginate(min((int) $request->integer('per_page', 20), 100))->withQueryString()
-        );
+        $page = $query->paginate(min((int) $request->integer('per_page', 20), 100));
+
+        return response()->json([
+            'data' => NpbgResource::collection($page->getCollection())->resolve(),
+            'meta' => ['page' => $page->currentPage(), 'per_page' => $page->perPage(),
+                'total' => $page->total(), 'last_page' => $page->lastPage()],
+        ]);
     }
 
     public function show(Npbg $npbg): NpbgResource

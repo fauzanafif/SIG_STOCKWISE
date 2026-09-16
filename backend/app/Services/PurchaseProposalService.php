@@ -5,7 +5,7 @@ namespace App\Services;
 use App\Models\InventoryAnalysisRun;
 use App\Models\Item;
 use App\Models\MaterialRequest;
-use App\Models\Ppb;
+use App\Models\PurchaseProposal;
 use App\Models\User;
 use App\Services\Inventory\InventoryAnalyzer;
 use App\Services\Inventory\StockwiseEngine;
@@ -13,10 +13,15 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
 /**
- * PPB (Permintaan Pembelian Barang) — docs/status-flow.md §3, brief §M.
+ * Purchase Proposal (usulan pembelian internal) — docs/status-flow.md §3, brief §M.
  * DRAFT -> SUBMITTED -> REVIEW -> APPROVED -> PURCHASING -> ORDERED -> PARTIAL_RECEIVED -> RECEIVED -> COMPLETED.
+ *
+ * Formerly "Ppb" — renamed so "PPB" can refer to the real Accurate REQUISITION
+ * mirror (see Npbg-style Ppb model + AccurateSyncService::syncPpb()). Document
+ * numbers here use prefix UPB (not PPB) to stay visually distinct from real
+ * Accurate PPB numbers like PPB/ATK/25/IX/004.
  */
-class PpbService
+class PurchaseProposalService
 {
     public function __construct(
         private readonly DocumentNumberService $numbers,
@@ -24,7 +29,7 @@ class PpbService
         private readonly InventoryAnalyzer $analyzer,
     ) {}
 
-    public function createFromRequest(MaterialRequest $request, User $user): Ppb
+    public function createFromRequest(MaterialRequest $request, User $user): PurchaseProposal
     {
         $lines = $request->items()
             ->whereIn('line_status', ['NEED_PURCHASE', 'PARTIAL'])
@@ -62,7 +67,7 @@ class PpbService
     }
 
     /** @param array{items:array<int,array{item_id?:?int, description_raw?:string, qty:float, unit_id?:?int}>, notes?:?string} $data */
-    public function createManual(User $user, array $data): Ppb
+    public function createManual(User $user, array $data): PurchaseProposal
     {
         return DB::transaction(function () use ($user, $data) {
             $ppb = $this->makeHeader($user, [
@@ -91,7 +96,7 @@ class PpbService
      *
      * @param  array{notes?:?string, items?:array<int,array{item_id?:?int, description_raw?:string, qty:float, unit_id?:?int}>}  $data
      */
-    public function update(Ppb $ppb, array $data): Ppb
+    public function update(PurchaseProposal $ppb, array $data): PurchaseProposal
     {
         $this->assert($ppb, ['DRAFT']);
 
@@ -114,7 +119,7 @@ class PpbService
     }
 
     /** Hapus PPB — hanya selagi DRAFT (belum submit, tidak ada jejak downstream). */
-    public function delete(Ppb $ppb): void
+    public function delete(PurchaseProposal $ppb): void
     {
         $this->assert($ppb, ['DRAFT']);
         DB::transaction(function () use ($ppb) {
@@ -124,7 +129,7 @@ class PpbService
         });
     }
 
-    public function submit(Ppb $ppb): Ppb
+    public function submit(PurchaseProposal $ppb): PurchaseProposal
     {
         $this->assert($ppb, ['DRAFT']);
         abort_if($ppb->items()->count() === 0, 422, 'PPB kosong.');
@@ -133,7 +138,7 @@ class PpbService
         return $ppb;
     }
 
-    public function review(Ppb $ppb): Ppb
+    public function review(PurchaseProposal $ppb): PurchaseProposal
     {
         $this->assert($ppb, ['SUBMITTED', 'REVIEW']);
         $ppb->update(['status' => 'REVIEW']);
@@ -141,7 +146,7 @@ class PpbService
         return $ppb;
     }
 
-    public function approve(Ppb $ppb, User $user): Ppb
+    public function approve(PurchaseProposal $ppb, User $user): PurchaseProposal
     {
         $this->assert($ppb, ['SUBMITTED', 'REVIEW']);
         $ppb->update([
@@ -154,7 +159,7 @@ class PpbService
         return $ppb->fresh('items');
     }
 
-    public function reject(Ppb $ppb, string $reason): Ppb
+    public function reject(PurchaseProposal $ppb, string $reason): PurchaseProposal
     {
         $this->assert($ppb, ['SUBMITTED', 'REVIEW']);
         $ppb->update(['status' => 'CANCELLED', 'notes' => trim(($ppb->notes ?? '')."\nDitolak: {$reason}")]);
@@ -162,7 +167,7 @@ class PpbService
         return $ppb;
     }
 
-    public function amend(Ppb $ppb, User $user, ?int $ppbItemId, string $type, ?float $qtyAfter, string $reason): Ppb
+    public function amend(PurchaseProposal $ppb, User $user, ?int $ppbItemId, string $type, ?float $qtyAfter, string $reason): PurchaseProposal
     {
         abort_if(in_array($ppb->status, ['RECEIVED', 'COMPLETED', 'CANCELLED'], true), 422, 'PPB sudah selesai.');
 
@@ -196,14 +201,14 @@ class PpbService
 
     // ------------------------------------------------------------------
 
-    private function makeHeader(User $user, array $attrs): Ppb
+    private function makeHeader(User $user, array $attrs): PurchaseProposal
     {
         $date = now();
         $prefix = $attrs['prefix'] ?? 'NA';
-        $number = $this->numbers->next('PPB', $prefix, $date);
+        $number = $this->numbers->next('UPB', $prefix, $date);
         [, , $yy, , $seq] = explode('/', $number);
 
-        return Ppb::create(array_merge([
+        return PurchaseProposal::create(array_merge([
             'number' => $number,
             'prefix' => $prefix,
             'year' => (int) $yy,
@@ -215,7 +220,7 @@ class PpbService
         ], $attrs));
     }
 
-    private function addLine(Ppb $ppb, array $data): void
+    private function addLine(PurchaseProposal $ppb, array $data): void
     {
         $analysis = null;
         if (! empty($data['item_id'])) {
@@ -249,7 +254,7 @@ class PpbService
     }
 
     /** @param list<string> $allowed */
-    private function assert(Ppb $ppb, array $allowed): void
+    private function assert(PurchaseProposal $ppb, array $allowed): void
     {
         if (! in_array($ppb->status, $allowed, true)) {
             throw ValidationException::withMessages(['status' => ["Aksi tidak valid untuk status PPB {$ppb->status}."]]);

@@ -17,6 +17,8 @@ import { PoDetailPage } from '@/pages/PoDetailPage'
 import { PoListPage } from '@/pages/PoListPage'
 import { PpbDetailPage } from '@/pages/PpbDetailPage'
 import { PpbListPage } from '@/pages/PpbListPage'
+import { PurchaseProposalDetailPage } from '@/pages/PurchaseProposalDetailPage'
+import { PurchaseProposalListPage } from '@/pages/PurchaseProposalListPage'
 import { ReceivingCreatePage } from '@/pages/ReceivingCreatePage'
 import { ReceivingDetailPage } from '@/pages/ReceivingDetailPage'
 import { ReceivingListPage } from '@/pages/ReceivingListPage'
@@ -24,6 +26,8 @@ import { RequestCreatePage } from '@/pages/RequestCreatePage'
 import { RequestDetailPage } from '@/pages/RequestDetailPage'
 import { RequestListPage } from '@/pages/RequestListPage'
 import { ReportsPage } from '@/pages/ReportsPage'
+import { RiDetailPage } from '@/pages/RiDetailPage'
+import { RiListPage } from '@/pages/RiListPage'
 import { SafetyStockPage } from '@/pages/SafetyStockPage'
 import { SyncPage } from '@/pages/SyncPage'
 import { SyncHistoryPage } from '@/pages/SyncHistoryPage'
@@ -68,10 +72,17 @@ export const router = createBrowserRouter([
             ],
           },
           {
-            element: <RequirePermission permission={['ppb.view', 'ppb.view_own']} />,
+            element: <RequirePermission permission={['ppb.view']} />,
             children: [
               { path: '/ppb', element: <PpbListPage /> },
               { path: '/ppb/:id', element: <PpbDetailPage /> },
+            ],
+          },
+          {
+            element: <RequirePermission permission={['purchase_proposal.view', 'purchase_proposal.view_own']} />,
+            children: [
+              { path: '/purchase-proposals', element: <PurchaseProposalListPage /> },
+              { path: '/purchase-proposals/:id', element: <PurchaseProposalDetailPage /> },
             ],
           },
           {
@@ -88,6 +99,13 @@ export const router = createBrowserRouter([
               { path: '/receivings', element: <ReceivingListPage /> },
               { path: '/receivings/new', element: <ReceivingCreatePage /> },
               { path: '/receivings/:id', element: <ReceivingDetailPage /> },
+            ],
+          },
+          {
+            element: <RequirePermission permission={['ri.view']} />,
+            children: [
+              { path: '/ri', element: <RiListPage /> },
+              { path: '/ri/:id', element: <RiDetailPage /> },
             ],
           },
           {
@@ -147,7 +165,7 @@ export const router = createBrowserRouter([
           {
             element: (
               <RequirePermission
-                permission={['report.inventory', 'report.request', 'report.npbg', 'report.ppb', 'report.opname', 'report.stock_movement']}
+                permission={['report.inventory', 'report.request', 'report.npbg', 'report.ppb', 'report.ri', 'report.opname', 'report.stock_movement']}
               />
             ),
             children: [{ path: '/reports', element: <ReportsPage /> }],

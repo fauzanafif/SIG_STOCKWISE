@@ -14,8 +14,10 @@ use App\Http\Controllers\Api\NpbgController;
 use App\Http\Controllers\Api\NpbgVerificationController;
 use App\Http\Controllers\Api\PermissionController;
 use App\Http\Controllers\Api\PpbController;
+use App\Http\Controllers\Api\PurchaseProposalController;
 use App\Http\Controllers\Api\PurchaseOrderController;
 use App\Http\Controllers\Api\ReceivingController;
+use App\Http\Controllers\Api\RiController;
 use App\Http\Controllers\Api\RoleController;
 use App\Http\Controllers\Api\SafetyStockController;
 use App\Http\Controllers\Api\StockOpnameController;
@@ -65,7 +67,7 @@ Route::middleware('auth:sanctum')->group(function (): void {
         Route::get('/categories/tree', [MasterDataController::class, 'categoryTree'])->name('api.categories.tree');
     });
     Route::get('/units', [MasterDataController::class, 'units'])
-        ->middleware('permission:master.unit.view|request.create|ppb.create|item.view')->name('api.units');
+        ->middleware('permission:master.unit.view|request.create|purchase_proposal.create|item.view')->name('api.units');
     Route::get('/warehouses', [MasterDataController::class, 'warehouses'])
         ->middleware('permission:master.warehouse.view')->name('api.warehouses');
     Route::get('/warehouse-locations', [MasterDataController::class, 'warehouseLocations'])
@@ -117,7 +119,7 @@ Route::middleware('auth:sanctum')->group(function (): void {
     Route::post('/inventory/analysis/recompute', [InventoryController::class, 'recompute'])
         ->middleware('permission:inventory.view_analysis')->name('api.inventory.recompute');
     Route::post('/inventory/projected', [InventoryController::class, 'projected'])
-        ->middleware('permission:request.create|ppb.create|inventory.view')->name('api.inventory.projected');
+        ->middleware('permission:request.create|purchase_proposal.create|inventory.view')->name('api.inventory.projected');
 
     /*
     |--------------------------------------------------------------------------
@@ -219,6 +221,8 @@ Route::middleware('auth:sanctum')->group(function (): void {
         ->middleware('permission:opname.view')->name('api.opnames.index');
     Route::get('/stock-opnames/{stockOpname}', [StockOpnameController::class, 'show'])
         ->middleware('permission:opname.view')->name('api.opnames.show');
+    Route::get('/stock-opnames/{stockOpname}/print', [StockOpnameController::class, 'print'])
+        ->middleware('permission:opname.view')->name('api.opnames.print');
     Route::post('/stock-opnames', [StockOpnameController::class, 'store'])
         ->middleware('permission:opname.schedule')->name('api.opnames.store');
     Route::post('/stock-opnames/{stockOpname}/start', [StockOpnameController::class, 'start'])
@@ -242,28 +246,41 @@ Route::middleware('auth:sanctum')->group(function (): void {
     Route::put('/vendors/{vendor}', [VendorController::class, 'update'])
         ->middleware('permission:master.vendor.manage')->name('api.vendors.update');
 
+    // Usulan pembelian internal (dulu bernama "ppb")
+    // renamed so /api/ppb below can be the real PPB (Accurate REQUISITION/REQUISITIONDET mirror).
+    Route::get('/purchase-proposals', [PurchaseProposalController::class, 'index'])
+        ->middleware('permission:purchase_proposal.view|purchase_proposal.view_own')->name('api.purchase-proposals.index');
+    Route::get('/purchase-proposals/{purchaseProposal}', [PurchaseProposalController::class, 'show'])
+        ->middleware('permission:purchase_proposal.view|purchase_proposal.view_own')->name('api.purchase-proposals.show');
+    Route::post('/purchase-proposals/from-request', [PurchaseProposalController::class, 'storeFromRequest'])
+        ->middleware('permission:purchase_proposal.create|request.set_need_purchase')->name('api.purchase-proposals.from-request');
+    Route::post('/purchase-proposals', [PurchaseProposalController::class, 'store'])
+        ->middleware('permission:purchase_proposal.create')->name('api.purchase-proposals.store');
+    Route::match(['put', 'patch'], '/purchase-proposals/{purchaseProposal}', [PurchaseProposalController::class, 'update'])
+        ->middleware('permission:purchase_proposal.update')->name('api.purchase-proposals.update');
+    Route::delete('/purchase-proposals/{purchaseProposal}', [PurchaseProposalController::class, 'destroy'])
+        ->middleware('permission:purchase_proposal.update')->name('api.purchase-proposals.destroy');
+    Route::post('/purchase-proposals/{purchaseProposal}/submit', [PurchaseProposalController::class, 'submit'])
+        ->middleware('permission:purchase_proposal.submit|purchase_proposal.create')->name('api.purchase-proposals.submit');
+    Route::post('/purchase-proposals/{purchaseProposal}/review', [PurchaseProposalController::class, 'review'])
+        ->middleware('permission:purchase_proposal.review')->name('api.purchase-proposals.review');
+    Route::post('/purchase-proposals/{purchaseProposal}/approve', [PurchaseProposalController::class, 'approve'])
+        ->middleware('permission:purchase_proposal.approve')->name('api.purchase-proposals.approve');
+    Route::post('/purchase-proposals/{purchaseProposal}/reject', [PurchaseProposalController::class, 'reject'])
+        ->middleware('permission:purchase_proposal.reject')->name('api.purchase-proposals.reject');
+    Route::post('/purchase-proposals/{purchaseProposal}/amend', [PurchaseProposalController::class, 'amend'])
+        ->middleware('permission:purchase_proposal.amend|purchase_proposal.close')->name('api.purchase-proposals.amend');
+
     Route::get('/ppb', [PpbController::class, 'index'])
-        ->middleware('permission:ppb.view|ppb.view_own')->name('api.ppb.index');
+        ->middleware('permission:ppb.view')->name('api.ppb.index');
     Route::get('/ppb/{ppb}', [PpbController::class, 'show'])
-        ->middleware('permission:ppb.view|ppb.view_own')->name('api.ppb.show');
-    Route::post('/ppb/from-request', [PpbController::class, 'storeFromRequest'])
-        ->middleware('permission:ppb.create|request.set_need_purchase')->name('api.ppb.from-request');
-    Route::post('/ppb', [PpbController::class, 'store'])
-        ->middleware('permission:ppb.create')->name('api.ppb.store');
-    Route::match(['put', 'patch'], '/ppb/{ppb}', [PpbController::class, 'update'])
-        ->middleware('permission:ppb.update')->name('api.ppb.update');
-    Route::delete('/ppb/{ppb}', [PpbController::class, 'destroy'])
-        ->middleware('permission:ppb.update')->name('api.ppb.destroy');
-    Route::post('/ppb/{ppb}/submit', [PpbController::class, 'submit'])
-        ->middleware('permission:ppb.submit|ppb.create')->name('api.ppb.submit');
-    Route::post('/ppb/{ppb}/review', [PpbController::class, 'review'])
-        ->middleware('permission:ppb.review')->name('api.ppb.review');
-    Route::post('/ppb/{ppb}/approve', [PpbController::class, 'approve'])
-        ->middleware('permission:ppb.approve')->name('api.ppb.approve');
-    Route::post('/ppb/{ppb}/reject', [PpbController::class, 'reject'])
-        ->middleware('permission:ppb.reject')->name('api.ppb.reject');
-    Route::post('/ppb/{ppb}/amend', [PpbController::class, 'amend'])
-        ->middleware('permission:ppb.amend|ppb.close')->name('api.ppb.amend');
+        ->middleware('permission:ppb.view')->name('api.ppb.show');
+
+    // RI (mirror Accurate APINV/APITMDET) — terpisah dari /api/receivings (alur internal DRAFT->CHECKING->CONFIRMED).
+    Route::get('/ri', [RiController::class, 'index'])
+        ->middleware('permission:ri.view')->name('api.ri.index');
+    Route::get('/ri/{ri}', [RiController::class, 'show'])
+        ->middleware('permission:ri.view')->name('api.ri.show');
 
     Route::get('/purchase-orders', [PurchaseOrderController::class, 'index'])
         ->middleware('permission:po.view')->name('api.po.index');

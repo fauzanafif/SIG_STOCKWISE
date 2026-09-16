@@ -357,4 +357,53 @@ class StockOpnameTest extends TestCase
         $this->assertNull($line['match_status']);
         $this->assertNull($line['diff_label']);
     }
+
+    /**
+     * One print view serves two real needs: printed right after scheduling (physical_qty still
+     * empty) it's a blank count sheet to carry into the warehouse; printed after review it's the
+     * results report — same endpoint, same data. Blind count still applies to who sees system_qty.
+     */
+    public function test_print_before_counting_is_a_blank_sheet(): void
+    {
+        $item = $this->stockedItem(100);
+        $this->actingAsRole('admin_gudang');
+        $id = $this->postJson('/api/stock-opnames', [
+            'warehouse_id' => $this->warehouse->id, 'scheduled_date' => now()->toDateString(),
+            'type' => 'PARTIAL', 'item_ids' => [$item->id],
+        ])->json('data.id');
+
+        $res = $this->get("/api/stock-opnames/{$id}/print")->assertOk();
+        $res->assertHeader('content-type', 'text/html; charset=UTF-8');
+        $html = $res->streamedContent();
+        $this->assertStringContainsString($item->code, $html);
+        $this->assertStringContainsString('Dihitung oleh', $html);
+    }
+
+    public function test_print_after_review_shows_filled_results_for_reviewer(): void
+    {
+        $item = $this->stockedItem(100);
+        $o = $this->scheduleAndStart();
+        $this->enterCount($o, $item->id, 95, '5 pcs rusak');
+        $this->postJson("/api/stock-opnames/{$o->id}/submit");
+
+        $this->actingAsRole('admin_gudang');
+        $line = $o->items()->first();
+        $this->postJson("/api/stock-opnames/{$o->id}/review", ['decisions' => [['id' => $line->id, 'decision' => 'APPROVED']]]);
+
+        $html = $this->get("/api/stock-opnames/{$o->id}/print")->assertOk()->streamedContent();
+        $this->assertStringContainsString('>95<', $html); // physical qty printed
+        $this->assertStringContainsString('>100<', $html); // system qty printed — reviewer sees it
+        $this->assertStringContainsString('-5', $html); // signed difference
+    }
+
+    public function test_print_hides_system_qty_for_counter_only_role(): void
+    {
+        $item = $this->stockedItem(100);
+        $o = $this->scheduleAndStart(); // acting as anak_gudang (counter, not reviewer) afterwards
+
+        $html = $this->get("/api/stock-opnames/{$o->id}/print")->assertOk()->streamedContent();
+        $this->assertStringContainsString($item->code, $html);
+        $this->assertStringNotContainsString('<th>Sistem</th>', $html);
+        $this->assertStringNotContainsString('<th>Selisih</th>', $html);
+    }
 }

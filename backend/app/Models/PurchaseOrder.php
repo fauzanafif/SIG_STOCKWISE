@@ -28,7 +28,7 @@ class PurchaseOrder extends Model
 
     public function ppb()
     {
-        return $this->belongsTo(Ppb::class);
+        return $this->belongsTo(PurchaseProposal::class, 'ppb_id');
     }
 
     public function receivings()

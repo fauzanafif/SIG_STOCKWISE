@@ -2,7 +2,7 @@ import { useEffect, useState, type ReactNode } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useRequest, useRequestAction, usePhysicalCheck, useSetRequestRefs } from '@/features/requests/api'
 import { useCreateGoodsIssueFromRequest } from '@/features/goods-issues/api'
-import { useCreatePpbFromRequest } from '@/features/purchasing/api'
+import { useCreatePurchaseProposalFromRequest } from '@/features/purchasing/api'
 import { useAuth } from '@/auth/AuthContext'
 import { apiErrorMessage } from '@/lib/api'
 import { Button } from '@/components/ui/button'
@@ -22,7 +22,7 @@ export function RequestDetailPage() {
   const action = useRequestAction(requestId)
   const check = usePhysicalCheck(requestId)
   const createGoodsIssue = useCreateGoodsIssueFromRequest()
-  const createPpb = useCreatePpbFromRequest()
+  const createPpb = useCreatePurchaseProposalFromRequest()
   const [err, setErr] = useState<string | null>(null)
 
   if (isLoading || !req) return <p className="text-muted-foreground">Memuat…</p>
@@ -108,19 +108,19 @@ export function RequestDetailPage() {
               Tandai Perlu Pembelian
             </Button>
           )}
-        {(req.status === 'PARTIAL' || req.status === 'NEED_PURCHASE') && hasPermission('ppb.create') && (
+        {(req.status === 'PARTIAL' || req.status === 'NEED_PURCHASE') && hasPermission('purchase_proposal.create') && (
           <Button
             size="sm"
             variant="outline"
             disabled={createPpb.isPending}
             onClick={() =>
               createPpb.mutate(requestId, {
-                onSuccess: (ppb) => navigate(`/ppb/${ppb.id}`),
+                onSuccess: (ppb) => navigate(`/purchase-proposals/${ppb.id}`),
                 onError: (e) => setErr(apiErrorMessage(e)),
               })
             }
           >
-            Buat PPB
+            Buat Usulan Pembelian
           </Button>
         )}
         {!['PICKED_UP', 'COMPLETED', 'CANCELLED'].includes(req.status) &&

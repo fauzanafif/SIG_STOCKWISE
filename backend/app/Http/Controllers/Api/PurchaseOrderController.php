@@ -50,7 +50,7 @@ class PurchaseOrderController extends Controller
     {
         $data = $request->validate([
             'vendor_id' => ['required', 'integer', 'exists:vendors,id'],
-            'ppb_id' => ['nullable', 'integer', 'exists:ppb,id'],
+            'ppb_id' => ['nullable', 'integer', 'exists:purchase_proposals,id'],
             'expected_date' => ['nullable', 'date'],
             'tax_percent' => ['nullable', 'numeric', 'min:0', 'max:100'],
             'lines' => ['required', 'array', 'min:1'],

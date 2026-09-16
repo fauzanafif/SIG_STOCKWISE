@@ -46,6 +46,7 @@ class AccurateNpbgSyncTest extends TestCase
             Schema::create('accurate_arinvdet', function ($table) {
                 $table->integer('ARINVOICEID')->nullable();
                 $table->integer('SEQ')->nullable();
+                $table->string('ITEMNO')->nullable();
                 $table->string('ITEMOVDESC')->nullable();
                 $table->decimal('QUANTITY', 14, 2)->nullable();
                 $table->string('ITEMUNIT')->nullable();
@@ -65,7 +66,7 @@ class AccurateNpbgSyncTest extends TestCase
 
         foreach ($lines as $line) {
             DB::table('accurate_arinvdet')->insert(array_merge([
-                'ARINVOICEID' => $header['ARINVOICEID'], 'SEQ' => null, 'ITEMOVDESC' => null,
+                'ARINVOICEID' => $header['ARINVOICEID'], 'SEQ' => null, 'ITEMNO' => null, 'ITEMOVDESC' => null,
                 'QUANTITY' => null, 'ITEMUNIT' => null, 'ITEMRESERVED1' => null,
             ], $line));
         }
@@ -77,7 +78,7 @@ class AccurateNpbgSyncTest extends TestCase
             ['ARINVOICEID' => 9, 'INVOICENO' => 'ATK/25/IX/029', 'INVOICEDATE' => '2025-09-20',
                 'SHIPDATE' => '2025-09-20', 'TAXDATE' => '2025-09-20', 'PURCHASEORDERNO' => 'GUDANG',
                 'SHIPTO1' => 'GUDANG (SDA)', 'DESCRIPTION' => 'UNTUK PEMAKAIAN HARIAN'],
-            [['SEQ' => 1, 'ITEMOVDESC' => 'KERTAS HVS A4', 'QUANTITY' => 2, 'ITEMUNIT' => 'RIM', 'ITEMRESERVED1' => 'NABILA']]
+            [['SEQ' => 1, 'ITEMNO' => 'OFN.0118', 'ITEMOVDESC' => 'KERTAS HVS A4', 'QUANTITY' => 2, 'ITEMUNIT' => 'RIM', 'ITEMRESERVED1' => 'NABILA']]
         );
 
         $this->actingAsRole('admin_gudang');
@@ -92,6 +93,7 @@ class AccurateNpbgSyncTest extends TestCase
         $this->assertSame('GUDANG', $npbg->divisi);
         $this->assertSame('GUDANG (SDA)', $npbg->pelanggan);
         $this->assertSame('UNTUK PEMAKAIAN HARIAN', $npbg->keterangan);
+        $this->assertSame('OFN.0118', $npbg->kode_barang);
         $this->assertSame('KERTAS HVS A4', $npbg->deskripsi_barang);
         $this->assertEquals(2, $npbg->kuantitas);
         $this->assertSame('RIM', $npbg->satuan);
@@ -199,15 +201,17 @@ class AccurateNpbgSyncTest extends TestCase
     public function test_search_and_filter(): void
     {
         $this->seedInvoice(['ARINVOICEID' => 50, 'INVOICENO' => 'SEARCHME/01', 'PURCHASEORDERNO' => 'GUDANG'],
-            [['SEQ' => 1, 'ITEMRESERVED1' => 'BUDI']]);
+            [['SEQ' => 1, 'ITEMNO' => 'OFN.0118', 'ITEMRESERVED1' => 'BUDI']]);
         $this->seedInvoice(['ARINVOICEID' => 51, 'INVOICENO' => 'OTHER/01', 'PURCHASEORDERNO' => 'ACCOUNTING'],
-            [['SEQ' => 1, 'ITEMRESERVED1' => 'SITI']]);
+            [['SEQ' => 1, 'ITEMNO' => 'AST.0001', 'ITEMRESERVED1' => 'SITI']]);
 
         $this->actingAsRole('admin_gudang');
         $this->postJson('/api/sync/accurate')->assertJsonPath('data.inserted_records', 2);
 
         $this->getJson('/api/npbg?search=SEARCHME')->assertOk()->assertJsonCount(1, 'data');
         $this->getJson('/api/npbg?search=BUDI')->assertOk()->assertJsonCount(1, 'data');
+        $this->getJson('/api/npbg?search=OFN.0118')->assertOk()->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.kode_barang', 'OFN.0118');
         $this->getJson('/api/npbg?divisi=ACCOUNTING')->assertOk()->assertJsonCount(1, 'data');
     }
 

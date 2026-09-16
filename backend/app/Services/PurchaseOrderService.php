@@ -3,9 +3,9 @@
 namespace App\Services;
 
 use App\Models\Item;
-use App\Models\Ppb;
-use App\Models\PpbItem;
 use App\Models\PurchaseOrder;
+use App\Models\PurchaseProposal;
+use App\Models\PurchaseProposalItem;
 use App\Models\User;
 use App\Models\Vendor;
 use Illuminate\Support\Facades\DB;
@@ -25,7 +25,7 @@ class PurchaseOrderService
     public function create(User $user, array $data): PurchaseOrder
     {
         $vendor = Vendor::findOrFail($data['vendor_id']);
-        $ppb = ! empty($data['ppb_id']) ? Ppb::findOrFail($data['ppb_id']) : null;
+        $ppb = ! empty($data['ppb_id']) ? PurchaseProposal::findOrFail($data['ppb_id']) : null;
 
         return DB::transaction(function () use ($user, $data, $vendor, $ppb) {
             $date = now();
@@ -65,9 +65,9 @@ class PurchaseOrderService
                 ]);
 
                 if (! empty($row['ppb_item_id'])) {
-                    PpbItem::where('id', $row['ppb_item_id'])
+                    PurchaseProposalItem::where('id', $row['ppb_item_id'])
                         ->update(['line_status' => 'ORDERED']);
-                    PpbItem::where('id', $row['ppb_item_id'])
+                    PurchaseProposalItem::where('id', $row['ppb_item_id'])
                         ->increment('qty_ordered', (float) $row['qty']);
                 }
             }

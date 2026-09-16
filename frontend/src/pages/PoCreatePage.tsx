@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { useCreatePo, usePpb, useVendors } from '@/features/purchasing/api'
+import { useCreatePo, usePurchaseProposal, useVendors } from '@/features/purchasing/api'
 import { apiErrorMessage } from '@/lib/api'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -21,7 +21,7 @@ export function PoCreatePage() {
   const [params] = useSearchParams()
   const ppbId = params.get('ppb') ? Number(params.get('ppb')) : null
 
-  const { data: ppb } = usePpb(ppbId)
+  const { data: ppb } = usePurchaseProposal(ppbId)
   const { data: vendors } = useVendors()
   const create = useCreatePo()
 
@@ -71,7 +71,7 @@ export function PoCreatePage() {
     )
   }
 
-  if (ppbId && !ppb) return <p className="text-muted-foreground">Memuat PPB…</p>
+  if (ppbId && !ppb) return <p className="text-muted-foreground">Memuat usulan pembelian…</p>
 
   return (
     <div className="max-w-3xl space-y-4">
@@ -116,7 +116,7 @@ export function PoCreatePage() {
           <CardTitle>Baris</CardTitle>
         </CardHeader>
         <CardContent className="space-y-2">
-          {!ppb && <p className="text-sm text-muted-foreground">Buka dari PPB yang sudah disetujui untuk mengisi baris.</p>}
+          {!ppb && <p className="text-sm text-muted-foreground">Buka dari usulan pembelian yang sudah disetujui untuk mengisi baris.</p>}
           {ppb?.items
             ?.filter((l) => l.line_status !== 'CLOSED' && l.qty - l.qty_ordered > 0)
             .map((l) => (

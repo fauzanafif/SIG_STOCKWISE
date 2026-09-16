@@ -129,6 +129,7 @@ export function NpbgDetailPage() {
 
       <Card>
         <CardContent className="grid grid-cols-2 gap-y-2 p-4 text-sm sm:grid-cols-3">
+          <Field label="Kode Barang" value={npbg.kode_barang} />
           <Field label="Deskripsi Barang" value={npbg.deskripsi_barang} />
           <Field label="Kuantitas" value={npbg.kuantitas != null ? `${npbg.kuantitas} ${npbg.satuan ?? ''}` : null} />
           <Field label="Peminta" value={npbg.peminta} />

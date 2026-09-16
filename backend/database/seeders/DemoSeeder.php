@@ -6,7 +6,6 @@ use App\Models\Asset;
 use App\Models\Customer;
 use App\Models\Inventory;
 use App\Models\Item;
-use App\Models\Ppb;
 use App\Models\Project;
 use App\Models\Site;
 use App\Models\User;
@@ -16,8 +15,8 @@ use App\Models\Workshop;
 use App\Services\GoodsIssueService;
 use App\Services\Inventory\InventoryAnalyzer;
 use App\Services\Inventory\StockLedgerService;
-use App\Services\PpbService;
 use App\Services\PurchaseOrderService;
+use App\Services\PurchaseProposalService;
 use App\Services\ReceivingService;
 use App\Services\RequestService;
 use App\Services\StockOpnameService;
@@ -98,7 +97,7 @@ class DemoSeeder extends Seeder
     {
         $tables = [
             'material_request_items', 'stock_reservations', 'material_requests',
-            'goods_issue_items', 'goods_issues', 'ppb_amendments', 'ppb_items', 'ppb',
+            'goods_issue_items', 'goods_issues', 'purchase_proposal_amendments', 'purchase_proposal_items', 'purchase_proposals',
             'purchase_order_items', 'purchase_orders', 'receiving_items', 'receivings',
             'stock_opname_items', 'stock_adjustments', 'stock_opnames',
             'lend_transactions', 'borrow_transactions', 'stpp_transactions', 'tyre_changes',
@@ -237,7 +236,7 @@ class DemoSeeder extends Seeder
     private function flowPartialProcurement(): void
     {
         $reqSvc = app(RequestService::class);
-        $ppbSvc = app(PpbService::class);
+        $ppbSvc = app(PurchaseProposalService::class);
         $poSvc = app(PurchaseOrderService::class);
         $riSvc = app(ReceivingService::class);
 
@@ -301,7 +300,7 @@ class DemoSeeder extends Seeder
     private function flowNeedPurchase(): void
     {
         $reqSvc = app(RequestService::class);
-        $ppbSvc = app(PpbService::class);
+        $ppbSvc = app(PurchaseProposalService::class);
 
         $req = $reqSvc->create($this->u['fauzan'], [
             'purpose' => 'Pengadaan router MikroTik untuk ruang server gudang',

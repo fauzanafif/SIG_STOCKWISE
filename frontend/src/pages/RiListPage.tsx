@@ -1,88 +1,51 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
-import { FileStack, RefreshCw } from 'lucide-react'
-import { useNpbgList } from '@/features/npbg/api'
+import { Truck, RefreshCw } from 'lucide-react'
+import { useRiList } from '@/features/ri/api'
 import { useTriggerSync } from '@/features/sync/api'
 import { useAuth } from '@/auth/AuthContext'
 import { apiErrorMessage } from '@/lib/api'
 import { PageHeader } from '@/components/PageHeader'
 import { DataTable, Pagination, type Column } from '@/components/DataTable'
 import { Button } from '@/components/ui/button'
-import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
-import type { Npbg } from '@/features/npbg/api'
-
-const VERIFICATION_LABEL: Record<string, string> = {
-  DIAJUKAN: 'Diajukan', DIPROSES: 'Diproses', ALTERNATIF_DITAWARKAN: 'Alternatif Ditawarkan',
-  MENUNGGU_RESPON: 'Menunggu Respon', PERLU_VERIFIKASI_BOS: 'Perlu Verifikasi BOS',
-  DISETUJUI: 'Disetujui', DITOLAK: 'Ditolak', SELESAI: 'Selesai',
-}
+import type { Ri } from '@/features/ri/api'
 
 function fmtDate(v: string | null) {
   return v ? new Date(v).toLocaleDateString('id-ID') : '—'
 }
 
-const columns: Column<Npbg>[] = [
+function fmtMoney(v: number | null) {
+  return v != null ? `Rp ${v.toLocaleString('id-ID')}` : '—'
+}
+
+const columns: Column<Ri>[] = [
   {
-    key: 'no_npbg',
-    header: 'No NPBG',
+    key: 'no_ri',
+    header: 'No RI',
     cell: (r) => (
-      <Link to={`/npbg/${r.id}`} className="font-mono text-xs text-primary hover:underline">
-        {r.no_npbg ?? '—'}
+      <Link to={`/ri/${r.id}`} className="font-mono text-xs text-primary hover:underline">
+        {r.no_ri ?? '—'}
       </Link>
     ),
   },
-  { key: 'tgl', header: 'Tgl NPBG', cell: (r) => <span className="whitespace-nowrap">{fmtDate(r.tgl_npbg)}</span> },
-  { key: 'kode', header: 'Kode Barang', cell: (r) => <span className="whitespace-nowrap font-mono text-xs">{r.kode_barang ?? '—'}</span> },
-  {
-    key: 'barang',
-    header: 'Deskripsi Barang',
-    className: 'max-w-[260px]',
-    cell: (r) => (
-      <span className="block truncate" title={r.deskripsi_barang ?? undefined}>
-        {r.deskripsi_barang ?? '—'}
-      </span>
-    ),
-  },
-  {
-    key: 'qty',
-    header: 'Kuantitas',
-    cell: (r) => <span className="whitespace-nowrap">{r.kuantitas != null ? `${r.kuantitas} ${r.satuan ?? ''}` : '—'}</span>,
-  },
-  { key: 'peminta', header: 'Peminta', cell: (r) => <span className="whitespace-nowrap">{r.peminta ?? '—'}</span> },
-  { key: 'divisi', header: 'Divisi', cell: (r) => <span className="whitespace-nowrap">{r.divisi ?? '—'}</span> },
-  {
-    key: 'pelanggan',
-    header: 'Pelanggan',
-    className: 'max-w-[200px]',
-    cell: (r) => (
-      <span className="block truncate" title={r.pelanggan ?? undefined}>
-        {r.pelanggan ?? '—'}
-      </span>
-    ),
-  },
-  { key: 'klasifikasi', header: 'Klasifikasi', cell: (r) => <span className="whitespace-nowrap">{r.klasifikasi ?? '—'}</span> },
-  {
-    key: 'klarifikasi',
-    header: 'Klarifikasi',
-    cell: (r) =>
-      r.latest_verification_status ? (
-        <Badge variant={r.latest_verification_status === 'SELESAI' ? 'success' : 'warning'}>
-          {VERIFICATION_LABEL[r.latest_verification_status] ?? r.latest_verification_status}
-        </Badge>
-      ) : (
-        '—'
-      ),
-  },
+  { key: 'tgl', header: 'Tgl RI', cell: (r) => fmtDate(r.tgl_ri) },
+  { key: 'divisi', header: 'Divisi', cell: (r) => r.divisi ?? '—' },
+  { key: 'vendor', header: 'Vendor', cell: (r) => r.vendor ?? '—' },
+  { key: 'kode', header: 'Kode Barang', cell: (r) => <span className="font-mono text-xs">{r.kode_barang ?? '—'}</span> },
+  { key: 'barang', header: 'Deskripsi Barang', cell: (r) => r.deskripsi_barang ?? '—' },
+  { key: 'qty', header: 'Kuantitas', cell: (r) => (r.kuantitas != null ? `${r.kuantitas} ${r.satuan ?? ''}` : '—') },
+  { key: 'harga', header: 'Harga Satuan', cell: (r) => fmtMoney(r.harga_satuan) },
+  { key: 'pemeriksa', header: 'Pemeriksa', cell: (r) => r.pemeriksa ?? '—' },
 ]
 
-export function NpbgListPage() {
+export function RiListPage() {
   const { hasPermission } = useAuth()
   const [search, setSearch] = useState('')
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
   const [page, setPage] = useState(1)
-  const { data, isLoading } = useNpbgList({
+  const { data, isLoading } = useRiList({
     search: search || undefined,
     date_from: dateFrom || undefined,
     date_to: dateTo || undefined,
@@ -96,9 +59,9 @@ export function NpbgListPage() {
   return (
     <div className="space-y-4">
       <PageHeader
-        title="NPBG"
-        subtitle="Mirror ARINV / ARINVDET dari Accurate"
-        icon={<FileStack className="size-5" />}
+        title="RI"
+        subtitle="Mirror APINV / APITMDET dari Accurate"
+        icon={<Truck className="size-5" />}
         actions={
           canTrigger ? (
             <Button size="sm" disabled={trigger.isPending} onClick={() => trigger.mutate()}>
@@ -121,7 +84,7 @@ export function NpbgListPage() {
 
       <div className="flex flex-wrap items-end gap-2">
         <Input
-          placeholder="Cari no NPBG, kode barang, deskripsi, peminta, divisi, pelanggan…"
+          placeholder="Cari no RI, kode barang, deskripsi, vendor, pemeriksa…"
           className="max-w-sm"
           value={search}
           onChange={(e) => { setSearch(e.target.value); setPage(1) }}
@@ -137,7 +100,7 @@ export function NpbgListPage() {
       </div>
 
       <DataTable columns={columns} rows={data?.data ?? []} rowKey={(r) => r.id} isLoading={isLoading}
-        emptyText="Belum ada data NPBG — jalankan Sync Accurate." />
+        emptyText="Belum ada data RI — jalankan Sync Accurate." />
       {data && (
         <Pagination page={data.meta.page} lastPage={data.meta.last_page} total={data.meta.total} onPage={setPage} />
       )}

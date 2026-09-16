@@ -2,9 +2,10 @@ import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tansta
 import { api } from '@/lib/api'
 import type { Paginated } from '@/types/inventory'
 
-// ---------------------------------------------------------------- PPB
+// ---------------------------------------------------------------- Purchase Proposal (usulan pembelian internal, dulu "Ppb")
+// Bukan mirror Accurate — itu ada di features/ppb/api.ts.
 
-export interface PpbLine {
+export interface PurchaseProposalLine {
   id: number
   item_code: string | null
   description: string
@@ -19,7 +20,7 @@ export interface PpbLine {
   line_status: string
 }
 
-export interface Ppb {
+export interface PurchaseProposal {
   id: number
   number: string
   status: string
@@ -30,73 +31,73 @@ export interface Ppb {
   notes?: string | null
   approved_at: string | null
   created_at: string
-  items?: PpbLine[]
+  items?: PurchaseProposalLine[]
   amendments?: { date: string | null; type: string; qty_before: number | null; qty_after: number | null; reason: string }[]
 }
 
-export function usePpbList(params: { status?: string; search?: string; page?: number }) {
+export function usePurchaseProposalList(params: { status?: string; search?: string; page?: number }) {
   return useQuery({
-    queryKey: ['ppb', params],
-    queryFn: async () => (await api.get<Paginated<Ppb>>('/api/ppb', { params })).data,
+    queryKey: ['purchase-proposals', params],
+    queryFn: async () => (await api.get<Paginated<PurchaseProposal>>('/api/purchase-proposals', { params })).data,
     placeholderData: keepPreviousData,
   })
 }
 
-export function usePpb(id: number | null) {
+export function usePurchaseProposal(id: number | null) {
   return useQuery({
-    queryKey: ['ppb', id],
+    queryKey: ['purchase-proposals', id],
     enabled: id != null,
-    queryFn: async () => (await api.get<{ data: Ppb }>(`/api/ppb/${id}`)).data.data,
+    queryFn: async () => (await api.get<{ data: PurchaseProposal }>(`/api/purchase-proposals/${id}`)).data.data,
   })
 }
 
-export function usePpbAction(id: number) {
+export function usePurchaseProposalAction(id: number) {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: async ({ action, body }: { action: string; body?: unknown }) =>
-      (await api.post<{ data: Ppb }>(`/api/ppb/${id}/${action}`, body ?? {})).data.data,
+      (await api.post<{ data: PurchaseProposal }>(`/api/purchase-proposals/${id}/${action}`, body ?? {})).data.data,
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['ppb'] })
+      qc.invalidateQueries({ queryKey: ['purchase-proposals'] })
       qc.invalidateQueries({ queryKey: ['purchase-orders'] })
     },
   })
 }
 
-export function useCreatePpbFromRequest() {
+export function useCreatePurchaseProposalFromRequest() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: async (requestId: number) =>
-      (await api.post<{ data: Ppb }>('/api/ppb/from-request', { material_request_id: requestId })).data.data,
+      (await api.post<{ data: PurchaseProposal }>('/api/purchase-proposals/from-request', { material_request_id: requestId })).data.data,
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['ppb'] })
+      qc.invalidateQueries({ queryKey: ['purchase-proposals'] })
       qc.invalidateQueries({ queryKey: ['request'] })
     },
   })
 }
 
-export function useCreatePpb() {
+export function useCreatePurchaseProposal() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: async (body: { notes?: string; items: { item_id?: number; description_raw?: string; qty: number; unit_id?: number }[] }) =>
-      (await api.post<{ data: Ppb }>('/api/ppb', body)).data.data,
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['ppb'] }),
+      (await api.post<{ data: PurchaseProposal }>('/api/purchase-proposals', body)).data.data,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['purchase-proposals'] }),
   })
 }
 
-export function useUpdatePpb(id: number) {
+export function useUpdatePurchaseProposal(id: number) {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: async (body: { notes?: string; items?: { item_id?: number; description_raw?: string; qty: number; unit_id?: number }[] }) =>
-      (await api.put<{ data: Ppb }>(`/api/ppb/${id}`, body)).data.data,
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['ppb'] }),
+      (await api.put<{ data: PurchaseProposal }>(`/api/purchase-proposals/${id}`, body)).data.data,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['purchase-proposals'] }),
   })
 }
 
-export function useDeletePpb() {
+export function useDeletePurchaseProposal() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: async (id: number) => (await api.delete(`/api/ppb/${id}`)).data,
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['ppb'] }),
+    mutationFn: async (id: number) => (await api.delete(`/api/purchase-proposals/${id}`)).data,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['purchase-proposals'] }),
   })
 }
 
@@ -156,7 +157,7 @@ export function usePoAction(id: number) {
       (await api.post<{ data: PurchaseOrder }>(`/api/purchase-orders/${id}/${action}`, body ?? {})).data.data,
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['purchase-orders'] })
-      qc.invalidateQueries({ queryKey: ['ppb'] })
+      qc.invalidateQueries({ queryKey: ['purchase-proposals'] })
     },
   })
 }
@@ -173,7 +174,7 @@ export function useCreatePo() {
     }) => (await api.post<{ data: PurchaseOrder }>('/api/purchase-orders', body)).data.data,
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['purchase-orders'] })
-      qc.invalidateQueries({ queryKey: ['ppb'] })
+      qc.invalidateQueries({ queryKey: ['purchase-proposals'] })
     },
   })
 }

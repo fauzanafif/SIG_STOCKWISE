@@ -4,8 +4,10 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 
-class PpbItem extends Model
+class PurchaseProposalItem extends Model
 {
+    protected $table = 'purchase_proposal_items';
+
     protected $guarded = ['id'];
 
     protected function casts(): array
@@ -15,7 +17,7 @@ class PpbItem extends Model
 
     public function ppb()
     {
-        return $this->belongsTo(Ppb::class);
+        return $this->belongsTo(PurchaseProposal::class, 'ppb_id');
     }
 
     public function item()

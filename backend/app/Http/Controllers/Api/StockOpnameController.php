@@ -8,6 +8,8 @@ use App\Models\StockOpnameItem;
 use App\Services\StockOpnameService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Carbon;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class StockOpnameController extends Controller
 {
@@ -152,6 +154,97 @@ class StockOpnameController extends Controller
         $this->service->review($stockOpname, $request->user(), $data['decisions'], $data['note'] ?? null);
 
         return $this->show($request, $stockOpname);
+    }
+
+    /**
+     * Print-friendly HTML (browser's own "Save as PDF"/print dialog turns it into paper or PDF —
+     * same convention as DatasetExporter::pdf()). One view serves two real needs with the same
+     * data: printed right after scheduling, physical_qty is still empty so it doubles as a blank
+     * count sheet to carry into the warehouse; printed after counting/review, the same columns are
+     * filled in and it reads as the results report. Blind count still applies — a counter-only
+     * session (no opname.review) never gets system_qty/selisih printed either, same as on screen.
+     */
+    public function print(Request $request, StockOpname $stockOpname): StreamedResponse
+    {
+        $stockOpname->load([
+            'warehouse:id,code,name', 'counter:id,name', 'scheduledBy:id,name', 'reviewedBy:id,name',
+            'items' => fn ($q) => $q->with('item:id,code,description')->orderBy('id'),
+        ]);
+        $canReview = $request->user()->hasPermission('opname.review');
+        $o = $stockOpname;
+        $title = "Stock Opname {$o->number}";
+
+        return response()->streamDownload(function () use ($o, $canReview) {
+            $esc = fn ($v) => htmlspecialchars((string) ($v ?? '—'), ENT_QUOTES);
+            $fmt = fn ($v) => $v ? Carbon::parse($v)->format('d/m/Y H:i') : '—';
+
+            echo '<!doctype html><html lang="id"><head><meta charset="utf-8"><title>'.$esc($o->number).'</title>';
+            echo '<style>@media print{@page{size:A4 portrait;margin:12mm}}';
+            echo 'body{font:12px/1.4 Arial,sans-serif;color:#111}h1{font-size:16px;margin:0 0 4px}';
+            echo '.meta{color:#666;margin-bottom:4px}';
+            echo '.hdr{display:grid;grid-template-columns:1fr 1fr 1fr;gap:4px 16px;margin:12px 0;font-size:11px}';
+            echo '.hdr div span{color:#666;display:block}';
+            echo 'table{border-collapse:collapse;width:100%;margin-top:10px}';
+            echo 'th,td{border:1px solid #bbb;padding:4px 6px;text-align:left;font-size:11px}th{background:#f1f5f9}';
+            echo 'tr:nth-child(even) td{background:#fafafa}';
+            echo '.sign{display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;margin-top:36px;font-size:11px}';
+            echo '.sign .line{margin-top:48px;border-top:1px solid #333;padding-top:4px}';
+            echo '</style></head><body onload="window.print()">';
+            echo '<h1>STOCKWISE — Stock Opname '.$esc($o->number).'</h1>';
+            echo '<div class="meta">PT Surya Inti Gas · dicetak '.now()->format('d/m/Y H:i').'</div>';
+
+            echo '<div class="hdr">';
+            echo '<div><span>Gudang</span>'.$esc($o->warehouse?->code).' — '.$esc($o->warehouse?->name).'</div>';
+            echo '<div><span>Tipe</span>'.$esc($o->type === 'PARTIAL' ? 'CUSTOM' : $o->type).'</div>';
+            echo '<div><span>Status</span>'.$esc($o->status).'</div>';
+            echo '<div><span>Tgl Dijadwalkan</span>'.$esc($o->scheduled_date?->toDateString()).' (oleh '.$esc($o->scheduledBy?->name).')</div>';
+            echo '<div><span>Mulai Hitung</span>'.$fmt($o->started_at).' (oleh '.$esc($o->counter?->name).')</div>';
+            echo '<div><span>Direview</span>'.$fmt($o->reviewed_at).' (oleh '.$esc($o->reviewedBy?->name).')</div>';
+            echo '</div>';
+
+            $headers = ['No', 'Kode', 'Deskripsi'];
+            if ($canReview) {
+                $headers[] = 'Sistem';
+            }
+            $headers[] = 'Fisik';
+            if ($canReview) {
+                $headers[] = 'Selisih';
+            }
+            $headers[] = 'Catatan';
+
+            echo '<table><thead><tr>';
+            foreach ($headers as $h) {
+                echo '<th>'.$esc($h).'</th>';
+            }
+            echo '</tr></thead><tbody>';
+
+            $no = 1;
+            foreach ($o->items as $l) {
+                echo '<tr>';
+                echo '<td>'.$no++.'</td>';
+                echo '<td>'.$esc($l->item?->code).'</td>';
+                echo '<td>'.$esc($l->item?->description).'</td>';
+                if ($canReview) {
+                    echo '<td>'.$esc($l->system_qty).'</td>';
+                }
+                echo '<td>'.$esc($l->physical_qty).'</td>';
+                if ($canReview) {
+                    $counted = $l->physical_qty !== null;
+                    echo '<td>'.($counted ? $esc($this->diffLabel((float) $l->difference)) : '—').'</td>';
+                }
+                echo '<td>'.$esc($l->note).'</td>';
+                echo '</tr>';
+            }
+            echo '</tbody></table>';
+
+            echo '<div class="sign">';
+            echo '<div>Dihitung oleh<div class="line">'.$esc($o->counter?->name ?: '').'</div></div>';
+            echo '<div>Direview oleh<div class="line">'.$esc($o->reviewedBy?->name ?: '').'</div></div>';
+            echo '<div>Mengetahui<div class="line"></div></div>';
+            echo '</div>';
+
+            echo '</body></html>';
+        }, 'stock-opname-'.str_replace('/', '-', $o->number).'.html', ['Content-Type' => 'text/html; charset=UTF-8']);
     }
 
     private function summary(StockOpname $o): array
