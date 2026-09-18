@@ -1,4 +1,4 @@
-import { useParams } from 'react-router-dom'
+import { Link, useParams } from 'react-router-dom'
 import { useRi } from '@/features/ri/api'
 import { Card, CardContent } from '@/components/ui/card'
 
@@ -38,7 +38,16 @@ export function RiDetailPage() {
           <Field label="Tgl RI" value={fmtDate(ri.tgl_ri)} />
           <Field label="Divisi" value={ri.divisi} />
           <Field label="Vendor" value={ri.vendor} />
-          <Field label="No PO" value={ri.no_po} />
+          <div>
+            <div className="text-muted-foreground">No PO</div>
+            {ri.source_po ? (
+              <Link to={`/purchase-orders/${ri.source_po.purchase_order_id}`} className="font-mono text-primary hover:underline">
+                {ri.source_po.number ?? ri.no_po ?? '—'}
+              </Link>
+            ) : (
+              <div>{ri.no_po ?? '—'}</div>
+            )}
+          </div>
           <Field label="Tgl Kirim" value={fmtDate(ri.shipdate)} />
         </CardContent>
       </Card>

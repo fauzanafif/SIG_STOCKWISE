@@ -25,4 +25,10 @@ class Ppb extends Model
             'accurate_synced_at' => 'datetime',
         ];
     }
+
+    /** PO lines raised from this PPB line — Accurate's own PODET.REQID/REQSEQ chain. */
+    public function poItems()
+    {
+        return $this->hasMany(PurchaseOrderItem::class, 'accurate_ppb_id');
+    }
 }

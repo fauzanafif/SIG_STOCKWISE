@@ -267,6 +267,8 @@ class StockOpnameController extends Controller
             'submitted_at' => $o->submitted_at,
             'reviewed_at' => $o->reviewed_at,
             'review_note' => $o->review_note,
+            'accurate_itemadj_id' => $o->accurate_itemadj_id,
+            'accurate_synced_at' => $o->accurate_synced_at,
         ];
     }
 }

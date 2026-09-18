@@ -68,6 +68,7 @@ export function OpnameDetailPage() {
   // Blind count: only a reviewer (admin gudang) sees system_qty / the match verdict — the API
   // itself omits those keys for a counter-only session, this just mirrors that in the columns.
   const canSeeSystemQty = hasPermission('opname.review')
+  const isFromAccurate = o.accurate_itemadj_id != null
 
   return (
     <div className="space-y-4">
@@ -79,8 +80,18 @@ export function OpnameDetailPage() {
             {canSeeSystemQty && <> · {o.diff_count ?? 0} invalid SO</>}
           </p>
         </div>
-        <RequestStatusBadge status={o.status} />
+        <div className="flex items-center gap-2">
+          {isFromAccurate && <Badge variant="default">Accurate</Badge>}
+          <RequestStatusBadge status={o.status} />
+        </div>
       </div>
+
+      {isFromAccurate && (
+        <p className="text-xs text-muted-foreground">
+          Stock Opname ini mirror dari Accurate — read-only, tidak melalui alur hitung/review internal.
+          {o.accurate_synced_at && ` Terakhir sync: ${new Date(o.accurate_synced_at).toLocaleString('id-ID')}.`}
+        </p>
+      )}
 
       <Card>
         <CardContent className="grid grid-cols-2 gap-y-2 p-4 text-sm sm:grid-cols-4">
@@ -111,13 +122,13 @@ export function OpnameDetailPage() {
       )}
 
       <div className="flex flex-wrap gap-2">
-        {(o.status === 'SCHEDULED' || o.status === 'RECOUNT_REQUIRED') && hasPermission('opname.count') && (
+        {!isFromAccurate && (o.status === 'SCHEDULED' || o.status === 'RECOUNT_REQUIRED') && hasPermission('opname.count') && (
           <Button size="sm" onClick={() => m.start.mutate(undefined, { onError: onErr })}>Mulai Hitung</Button>
         )}
-        {o.status === 'IN_PROGRESS' && hasPermission('opname.submit') && (
+        {!isFromAccurate && o.status === 'IN_PROGRESS' && hasPermission('opname.submit') && (
           <Button size="sm" onClick={() => m.submit.mutate(undefined, { onError: onErr })}>Submit</Button>
         )}
-        {o.status === 'PENDING_REVIEW' && hasPermission('opname.approve') && (
+        {!isFromAccurate && o.status === 'PENDING_REVIEW' && hasPermission('opname.approve') && (
           <Button
             size="sm"
             onClick={() =>
@@ -185,8 +196,8 @@ export function OpnameDetailPage() {
                 key={l.id}
                 line={l}
                 showSystemQty={canSeeSystemQty}
-                editable={o.status === 'IN_PROGRESS' && hasPermission('opname.count')}
-                reviewable={o.status === 'PENDING_REVIEW' && hasPermission('opname.approve')}
+                editable={!isFromAccurate && o.status === 'IN_PROGRESS' && hasPermission('opname.count')}
+                reviewable={!isFromAccurate && o.status === 'PENDING_REVIEW' && hasPermission('opname.approve')}
                 decision={decisions[l.id] ?? 'APPROVED'}
                 onDecision={(d) => setDecisions((s) => ({ ...s, [l.id]: d }))}
                 onCount={(physical_qty, note) => m.count.mutate({ lineId: l.id, physical_qty, note }, { onError: onErr })}

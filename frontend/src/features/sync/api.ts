@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { toast } from 'sonner'
 import { api } from '@/lib/api'
 import type { Paginated } from '@/types/inventory'
 
@@ -35,11 +36,12 @@ export interface SyncBatchDetail extends SyncBatchRow {
   logs: SyncLogRow[]
 }
 
-export function useSyncStatus() {
+export function useSyncStatus(enabled = true) {
   return useQuery({
     queryKey: ['sync', 'status'],
     queryFn: async () => (await api.get<{ data: SyncBatchRow | null }>('/api/sync/status')).data.data,
     refetchInterval: (query) => (query.state.data?.status === 'RUNNING' ? 2000 : false),
+    enabled,
   })
 }
 
@@ -62,8 +64,20 @@ export function useTriggerSync() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: async () => (await api.post<{ data: SyncBatchRow }>('/api/sync/accurate')).data.data,
-    onSuccess: () => {
+    // Custom popup instead of the generic "Berhasil disimpan." — the pages
+    // that show useTriggerSync() also render a rich inline result box, so
+    // this keeps the popup a quick, useful summary rather than a duplicate.
+    meta: { successMessage: false },
+    onSuccess: (data) => {
       qc.invalidateQueries({ queryKey: ['sync'] })
+      const label = data.status === 'SUCCESS' ? 'selesai' : data.status.toLowerCase()
+      if (data.status === 'FAILED') {
+        toast.error(`Sync Accurate gagal${data.error_message ? `: ${data.error_message}` : '.'}`)
+      } else {
+        toast.success(
+          `Sync Accurate ${label} — Total ${data.total_records}, Baru ${data.inserted_records}, Diperbarui ${data.updated_records}.`
+        )
+      }
     },
   })
 }

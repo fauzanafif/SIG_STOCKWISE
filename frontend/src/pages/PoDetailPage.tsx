@@ -4,6 +4,7 @@ import { usePo, usePoAction, type PoLine } from '@/features/purchasing/api'
 import { useAuth } from '@/auth/AuthContext'
 import { apiErrorMessage } from '@/lib/api'
 import { DataTable, type Column } from '@/components/DataTable'
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { RequestStatusBadge } from '@/components/ui/request-badge'
@@ -18,6 +19,34 @@ const lineColumns: Column<PoLine>[] = [
   { key: 'total', header: 'Subtotal', cell: (l) => rupiah(l.line_total) },
   { key: 'rcv', header: 'Diterima', cell: (l) => l.qty_received },
   { key: 'ls', header: 'Status', cell: (l) => <RequestStatusBadge status={l.line_status} /> },
+  {
+    key: 'ppb',
+    header: 'Dari PPB',
+    cell: (l) =>
+      l.source_ppb ? (
+        <Link to={`/ppb/${l.source_ppb.id}`} className="font-mono text-xs text-primary hover:underline">
+          {l.source_ppb.no_ppb ?? '—'}
+        </Link>
+      ) : (
+        '—'
+      ),
+  },
+  {
+    key: 'ri',
+    header: 'Diterima via RI',
+    cell: (l) =>
+      l.received_via && l.received_via.length > 0 ? (
+        <div className="flex flex-col gap-0.5">
+          {l.received_via.map((r) => (
+            <Link key={r.id} to={`/ri/${r.id}`} className="font-mono text-xs text-primary hover:underline">
+              {r.no_ri ?? '—'}
+            </Link>
+          ))}
+        </div>
+      ) : (
+        '—'
+      ),
+  },
 ]
 
 export function PoDetailPage() {
@@ -33,6 +62,8 @@ export function PoDetailPage() {
   const run = (name: string, body?: unknown) =>
     action.mutate({ action: name, body }, { onError: (e) => setErr(apiErrorMessage(e)) })
 
+  const isFromAccurate = po.accurate_po_id != null
+
   return (
     <div className="max-w-4xl space-y-4">
       <div className="flex items-start justify-between">
@@ -43,8 +74,18 @@ export function PoDetailPage() {
             {po.ppb_number ? ` · dari ${po.ppb_number}` : ''}
           </p>
         </div>
-        <RequestStatusBadge status={po.status} />
+        <div className="flex items-center gap-2">
+          {isFromAccurate && <Badge variant="default">Accurate</Badge>}
+          <RequestStatusBadge status={po.status} />
+        </div>
       </div>
+
+      {isFromAccurate && (
+        <p className="text-xs text-muted-foreground">
+          PO ini mirror dari Accurate — read-only, tidak melalui alur approve/send/batalkan internal.
+          {po.accurate_synced_at && ` Terakhir sync: ${new Date(po.accurate_synced_at).toLocaleString('id-ID')}.`}
+        </p>
+      )}
 
       <Card>
         <CardContent className="grid grid-cols-2 gap-y-1 p-4 text-sm sm:grid-cols-3">
@@ -57,28 +98,30 @@ export function PoDetailPage() {
         </CardContent>
       </Card>
 
-      <div className="flex flex-wrap items-center gap-2">
-        {po.status === 'DRAFT' && hasPermission('po.approve') && (
-          <Button size="sm" onClick={() => run('approve')}>
-            Approve
-          </Button>
-        )}
-        {po.status === 'APPROVED' && hasPermission('po.send') && (
-          <Button size="sm" onClick={() => run('send')}>
-            Kirim ke Vendor
-          </Button>
-        )}
-        {['SENT', 'PARTIAL_RECEIVED'].includes(po.status) && hasPermission('receiving.create') && (
-          <Button asChild size="sm">
-            <Link to={`/receivings/new?po=${po.id}`}>Buat Penerimaan</Link>
-          </Button>
-        )}
-        {!['RECEIVED', 'CLOSED', 'CANCELLED'].includes(po.status) && hasPermission('po.cancel') && (
-          <Button size="sm" variant="destructive" onClick={() => run('cancel', { reason: 'Dibatalkan dari UI' })}>
-            Batalkan
-          </Button>
-        )}
-      </div>
+      {!isFromAccurate && (
+        <div className="flex flex-wrap items-center gap-2">
+          {po.status === 'DRAFT' && hasPermission('po.approve') && (
+            <Button size="sm" onClick={() => run('approve')}>
+              Approve
+            </Button>
+          )}
+          {po.status === 'APPROVED' && hasPermission('po.send') && (
+            <Button size="sm" onClick={() => run('send')}>
+              Kirim ke Vendor
+            </Button>
+          )}
+          {['SENT', 'PARTIAL_RECEIVED'].includes(po.status) && hasPermission('receiving.create') && (
+            <Button asChild size="sm">
+              <Link to={`/receivings/new?po=${po.id}`}>Buat Penerimaan</Link>
+            </Button>
+          )}
+          {!['RECEIVED', 'CLOSED', 'CANCELLED'].includes(po.status) && hasPermission('po.cancel') && (
+            <Button size="sm" variant="destructive" onClick={() => run('cancel', { reason: 'Dibatalkan dari UI' })}>
+              Batalkan
+            </Button>
+          )}
+        </div>
+      )}
 
       {err && <p className="text-sm text-destructive">{err}</p>}
 

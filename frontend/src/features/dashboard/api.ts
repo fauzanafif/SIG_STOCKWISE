@@ -15,6 +15,8 @@ export interface DashboardData {
   charts: {
     request_status?: { name: string; value: number }[]
     stock_movement_14d?: { name: string; in: number; out: number }[]
+    /** PO status breakdown — Accurate-synced rows only (accurate_po_id set). */
+    po_status?: { name: string; value: number }[]
   }
   lists: {
     recent_requests?: { id: number; number: string; status: string; date: string | null }[]

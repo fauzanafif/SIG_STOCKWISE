@@ -27,6 +27,7 @@ export function ItemsPage() {
   const { hasPermission } = useAuth()
   const [search, setSearch] = useState('')
   const [status, setStatus] = useState('')
+  const [induk, setInduk] = useState('')
   const [anak1, setAnak1] = useState('')
   const [anak2, setAnak2] = useState('')
   const [anak3, setAnak3] = useState('')
@@ -41,8 +42,13 @@ export function ItemsPage() {
 
   // Filter kategori bertingkat dibangun client-side dari daftar cabang nyata
   // (accurate_category_anak_1/2/3) — sama seperti CategoryPicker.tsx untuk
-  // tree Excel. Tidak ada opsi "Kategori Induk": level itu selalu NULL,
-  // tidak ada sumbernya di Accurate (lihat docs/accurate-database-analysis.md §12).
+  // tree Excel. Kategori Induk BUKAN bagian dari tingkatan anak_1/2/3 (itu
+  // diturunkan dari 3 huruf depan kode barang, sistem klasifikasi yang
+  // berbeda) — jadi dropdown-nya independen, tidak cascading ke anak_1/2/3.
+  const indukOptions = useMemo(
+    () => [...new Set(branches?.map((b) => b.accurate_category_induk).filter((v): v is string => v != null) ?? [])].sort(),
+    [branches]
+  )
   const anak1Options = useMemo(
     () => [...new Set(branches?.map((b) => b.accurate_category_anak_1) ?? [])].sort(),
     [branches]
@@ -84,6 +90,7 @@ export function ItemsPage() {
   const activeFilters = {
     search: search || undefined,
     status: status || undefined,
+    accurate_category_induk: induk || undefined,
     accurate_category_anak_1: anak1 || undefined,
     accurate_category_anak_2: anak2 || undefined,
     accurate_category_anak_3: anak3 || undefined,
@@ -280,13 +287,19 @@ export function ItemsPage() {
           }}
         />
         <select
-          className="h-10 rounded-md border border-input bg-muted px-3 text-sm text-muted-foreground"
-          value=""
-          disabled
-          title="Tidak ada data — node kategori 0-titik tidak pernah dibuat di Accurate untuk perusahaan ini"
-          onChange={() => {}}
+          className="h-10 rounded-md border border-input bg-background px-3 text-sm"
+          value={induk}
+          onChange={(e) => {
+            setInduk(e.target.value)
+            setPage(1)
+          }}
         >
-          <option value="">Kategori Induk — tidak ada data</option>
+          <option value="">Semua Kategori Induk</option>
+          {indukOptions.map((c) => (
+            <option key={c} value={c}>
+              {c}
+            </option>
+          ))}
         </select>
         <select
           className="h-10 rounded-md border border-input bg-background px-3 text-sm"

@@ -1,9 +1,14 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { usePoList, type PurchaseOrder } from '@/features/purchasing/api'
-import { ShoppingCart } from 'lucide-react'
+import { useTriggerSync } from '@/features/sync/api'
+import { useAuth } from '@/auth/AuthContext'
+import { apiErrorMessage } from '@/lib/api'
+import { RefreshCw, ShoppingCart } from 'lucide-react'
 import { PageHeader } from '@/components/PageHeader'
 import { DataTable, Pagination, type Column } from '@/components/DataTable'
+import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { RequestStatusBadge } from '@/components/ui/request-badge'
 
@@ -24,17 +29,50 @@ const columns: Column<PurchaseOrder>[] = [
   { key: 'total', header: 'Total', cell: (r) => rupiah(r.total) },
   { key: 'status', header: 'Status', cell: (r) => <RequestStatusBadge status={r.status} /> },
   { key: 'date', header: 'Tanggal', cell: (r) => (r.date ? new Date(r.date).toLocaleDateString('id-ID') : '—') },
+  {
+    key: 'sumber',
+    header: 'Sumber',
+    cell: (r) => (r.accurate_po_id ? <Badge variant="default">Accurate</Badge> : <Badge variant="neutral">Internal</Badge>),
+  },
 ]
 
 export function PoListPage() {
+  const { hasPermission } = useAuth()
   const [search, setSearch] = useState('')
   const [status, setStatus] = useState('')
   const [page, setPage] = useState(1)
   const { data, isLoading } = usePoList({ search: search || undefined, status: status || undefined, page })
 
+  const trigger = useTriggerSync()
+  const canTrigger = hasPermission('sync.accurate.trigger')
+  const result = trigger.data
+
   return (
     <div className="space-y-5">
-      <PageHeader title="Purchase Order" subtitle="Pesanan pembelian ke vendor" icon={<ShoppingCart className="size-5" />} />
+      <PageHeader
+        title="Purchase Order"
+        subtitle="Pesanan pembelian ke vendor — internal & mirror PO/PODET dari Accurate"
+        icon={<ShoppingCart className="size-5" />}
+        actions={
+          canTrigger ? (
+            <Button size="sm" disabled={trigger.isPending} onClick={() => trigger.mutate()}>
+              <RefreshCw className={`mr-2 size-4 ${trigger.isPending ? 'animate-spin' : ''}`} />
+              {trigger.isPending ? 'Syncing…' : 'Sync Accurate'}
+            </Button>
+          ) : undefined
+        }
+      />
+
+      {trigger.isError && <p className="text-sm text-destructive">{apiErrorMessage(trigger.error)}</p>}
+      {result && (
+        <div className="rounded-md border bg-card p-3 text-sm">
+          Sync {result.status === 'SUCCESS' ? 'selesai' : result.status.toLowerCase()} — Total {result.total_records},
+          Baru {result.inserted_records}, Diperbarui {result.updated_records}, Dilewati {result.skipped_records},
+          Error <span className={result.error_records > 0 ? 'text-destructive' : ''}>{result.error_records}</span>
+          {result.error_message && <p className="mt-1 text-destructive">{result.error_message}</p>}
+        </div>
+      )}
+
       <div className="flex flex-wrap gap-2">
         <Input
           placeholder="Cari nomor…"
@@ -54,7 +92,7 @@ export function PoListPage() {
           }}
         >
           <option value="">Semua status</option>
-          {['DRAFT', 'APPROVED', 'SENT', 'PARTIAL_RECEIVED', 'RECEIVED', 'CANCELLED'].map((s) => (
+          {['DRAFT', 'APPROVED', 'SENT', 'PARTIAL_RECEIVED', 'RECEIVED', 'CLOSED', 'CANCELLED'].map((s) => (
             <option key={s} value={s}>
               {s}
             </option>

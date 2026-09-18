@@ -25,4 +25,22 @@ class Ri extends Model
             'accurate_synced_at' => 'datetime',
         ];
     }
+
+    /** The PO line this RI line received against — Accurate's own APITMDET.POID/POSEQ chain (not every RI line has one: internal stock-take style receipts have no PO). */
+    public function poItem()
+    {
+        return $this->belongsTo(PurchaseOrderItem::class, 'accurate_po_item_id');
+    }
+
+    /**
+     * Resolved vendor — same `vendors` row PO sync creates/uses for the same
+     * Accurate PERSONDATA. Named vendorRecord() (not vendor()) because
+     * `vendor` is already a plain string column on this model; a same-named
+     * relation method would be permanently shadowed by that column and never
+     * fire.
+     */
+    public function vendorRecord()
+    {
+        return $this->belongsTo(Vendor::class, 'vendor_id');
+    }
 }

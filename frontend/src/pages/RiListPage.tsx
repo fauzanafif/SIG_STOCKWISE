@@ -37,6 +37,18 @@ const columns: Column<Ri>[] = [
   { key: 'qty', header: 'Kuantitas', cell: (r) => (r.kuantitas != null ? `${r.kuantitas} ${r.satuan ?? ''}` : '—') },
   { key: 'harga', header: 'Harga Satuan', cell: (r) => fmtMoney(r.harga_satuan) },
   { key: 'pemeriksa', header: 'Pemeriksa', cell: (r) => r.pemeriksa ?? '—' },
+  {
+    key: 'po',
+    header: 'Dari PO',
+    cell: (r) =>
+      r.source_po ? (
+        <Link to={`/purchase-orders/${r.source_po.purchase_order_id}`} className="font-mono text-xs text-primary hover:underline">
+          {r.source_po.number ?? '—'}
+        </Link>
+      ) : (
+        '—'
+      ),
+  },
 ]
 
 export function RiListPage() {

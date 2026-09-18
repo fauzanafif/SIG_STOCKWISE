@@ -5,10 +5,17 @@ namespace App\Services\Accurate;
 use App\Models\Item;
 use App\Models\Npbg;
 use App\Models\Ppb;
+use App\Models\PurchaseOrder;
+use App\Models\PurchaseOrderItem;
 use App\Models\Ri;
+use App\Models\Site;
+use App\Models\StockOpname;
+use App\Models\StockOpnameItem;
 use App\Models\SyncBatch;
 use App\Models\SyncLog;
 use App\Models\Unit;
+use App\Models\Vendor;
+use App\Models\Warehouse;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Process;
 use Throwable;
@@ -49,6 +56,27 @@ class AccurateSyncService
     /** Max category levels resolved upward from a product's PARENTITEM (Anak 1/2/3 — see docs/accurate-database-analysis.md §12 on why there's no "Kategori Induk" level in this data). */
     protected const MAX_CATEGORY_LEVELS = 3;
 
+    /**
+     * Kategori Induk — NOT walked from Accurate's PARENTITEM chain (there is
+     * no top-level node to read there, see PRODUCT_ITEMNO_PATTERN docblock).
+     * Instead, per explicit user instruction, derived from the item code's
+     * own 3-letter prefix through this fixed translation table.
+     */
+    protected const KATEGORI_INDUK_MAP = [
+        'SSP' => 'Small Spare Parts',
+        'PUI' => 'Post-Use Items',
+        'OFN' => 'Office Needs',
+        'OAA' => 'Office Apparel & Accessories',
+        'MAA' => 'Manufacture & Assembly',
+        'MAI' => 'Maintenance & Industry',
+        'HHN' => 'Household Needs',
+        'ETA' => 'Etalase',
+        'EAE' => 'Electronics & Electricals',
+        'BSP' => 'Big Spare Parts',
+        'AUT' => 'Automotive',
+        'AST' => 'Assets',
+    ];
+
     public function run(?int $userId = null): SyncBatch
     {
         $this->reapStaleRunningBatches();
@@ -78,16 +106,22 @@ class AccurateSyncService
             return $batch->fresh();
         }
 
+        // Order matters: PO's accurate_ppb_id resolves against `ppb` rows, and
+        // RI's accurate_po_item_id resolves against `purchase_order_items`
+        // rows — both need their upstream link already synced in this same run
+        // (see AccurateSyncService::syncPo()/syncRi() chain-linking comments).
         $itemCounts = $this->syncItems($batch);
         $npbgCounts = $this->syncNpbg($batch);
         $ppbCounts = $this->syncPpb($batch);
+        $poCounts = $this->syncPo($batch);
         $riCounts = $this->syncRi($batch);
+        $soCounts = $this->syncStockOpname($batch);
         $counts = [
-            'total' => $itemCounts['total'] + $npbgCounts['total'] + $ppbCounts['total'] + $riCounts['total'],
-            'inserted' => $itemCounts['inserted'] + $npbgCounts['inserted'] + $ppbCounts['inserted'] + $riCounts['inserted'],
-            'updated' => $itemCounts['updated'] + $npbgCounts['updated'] + $ppbCounts['updated'] + $riCounts['updated'],
-            'skipped' => $itemCounts['skipped'] + $npbgCounts['skipped'] + $ppbCounts['skipped'] + $riCounts['skipped'],
-            'errors' => $itemCounts['errors'] + $npbgCounts['errors'] + $ppbCounts['errors'] + $riCounts['errors'],
+            'total' => $itemCounts['total'] + $npbgCounts['total'] + $ppbCounts['total'] + $riCounts['total'] + $poCounts['total'] + $soCounts['total'],
+            'inserted' => $itemCounts['inserted'] + $npbgCounts['inserted'] + $ppbCounts['inserted'] + $riCounts['inserted'] + $poCounts['inserted'] + $soCounts['inserted'],
+            'updated' => $itemCounts['updated'] + $npbgCounts['updated'] + $ppbCounts['updated'] + $riCounts['updated'] + $poCounts['updated'] + $soCounts['updated'],
+            'skipped' => $itemCounts['skipped'] + $npbgCounts['skipped'] + $ppbCounts['skipped'] + $riCounts['skipped'] + $poCounts['skipped'] + $soCounts['skipped'],
+            'errors' => $itemCounts['errors'] + $npbgCounts['errors'] + $ppbCounts['errors'] + $riCounts['errors'] + $poCounts['errors'] + $soCounts['errors'],
         ];
 
         $batch->update([
@@ -184,8 +218,8 @@ class AccurateSyncService
         // Preload existing items keyed by code once — avoids an N+1 query per
         // Accurate row (this loop runs over ~9,600 rows).
         $itemsByCode = Item::select(
-            'id', 'code', 'accurate_qty_onhand', 'accurate_qty_onorder', 'accurate_synced_at',
-            'accurate_category_anak_1', 'accurate_category_anak_2', 'accurate_category_anak_3'
+            'id', 'code', 'description', 'accurate_qty_onhand', 'accurate_qty_onorder', 'accurate_synced_at',
+            'accurate_category_anak_1', 'accurate_category_anak_2', 'accurate_category_anak_3', 'accurate_category_induk'
         )
             ->get()
             ->keyBy('code');
@@ -263,13 +297,21 @@ class AccurateSyncService
         $newQty = (float) ($row->QUANTITY ?? 0);
         $newOnOrder = (float) ($row->ONORDER ?? 0);
         $category = $this->resolveCategoryHierarchy($row->PARENTITEM ?? null, $nodesByCode);
+        $newDescription = trim((string) ($row->ITEMDESCRIPTION ?? ''));
+        $newInduk = $this->deriveKategoriInduk($itemno);
 
         if ($existing) {
+            // description is included here (not just qty/category) so that a
+            // corrected Firebird decode — e.g. the Ø/etc. that previously came
+            // through as U+FFFD before the Windows-1252 charset fix — actually
+            // reaches already-existing items on re-sync, not just brand-new ones.
             $unchanged = (float) $existing->accurate_qty_onhand === $newQty
                 && (float) $existing->accurate_qty_onorder === $newOnOrder
                 && $existing->accurate_category_anak_1 === $category['anak_1']
                 && $existing->accurate_category_anak_2 === $category['anak_2']
-                && $existing->accurate_category_anak_3 === $category['anak_3'];
+                && $existing->accurate_category_anak_3 === $category['anak_3']
+                && $existing->accurate_category_induk === $newInduk
+                && ($newDescription === '' || $existing->description === $newDescription);
 
             if ($unchanged && $existing->accurate_synced_at !== null) {
                 return ['bucket' => 'skipped', 'action' => 'SKIP', 'message' => 'Tidak ada perubahan.'];
@@ -281,6 +323,8 @@ class AccurateSyncService
                 'accurate_category_anak_1' => $existing->accurate_category_anak_1,
                 'accurate_category_anak_2' => $existing->accurate_category_anak_2,
                 'accurate_category_anak_3' => $existing->accurate_category_anak_3,
+                'accurate_category_induk' => $existing->accurate_category_induk,
+                'description' => $existing->description,
             ];
 
             $existing->forceFill([
@@ -290,7 +334,12 @@ class AccurateSyncService
                 'accurate_category_anak_1' => $category['anak_1'],
                 'accurate_category_anak_2' => $category['anak_2'],
                 'accurate_category_anak_3' => $category['anak_3'],
-            ])->save();
+                'accurate_category_induk' => $newInduk,
+            ]);
+            if ($newDescription !== '') {
+                $existing->forceFill(['description' => $newDescription]);
+            }
+            $existing->save();
 
             return [
                 'bucket' => 'updated',
@@ -299,6 +348,8 @@ class AccurateSyncService
                 'old_data' => $old,
                 'new_data' => [
                     'accurate_qty_onhand' => $newQty, 'accurate_qty_onorder' => $newOnOrder,
+                    'accurate_category_induk' => $newInduk,
+                    'description' => $newDescription !== '' ? $newDescription : $old['description'],
                 ] + $category,
             ];
         }
@@ -336,14 +387,27 @@ class AccurateSyncService
             'accurate_category_anak_1' => $category['anak_1'],
             'accurate_category_anak_2' => $category['anak_2'],
             'accurate_category_anak_3' => $category['anak_3'],
+            'accurate_category_induk' => $newInduk,
         ]);
 
         return [
             'bucket' => 'inserted',
             'action' => 'INSERT',
             'message' => 'Barang baru dari Accurate.',
-            'new_data' => ['code' => $created->code, 'description' => $created->description] + $category,
+            'new_data' => ['code' => $created->code, 'description' => $created->description, 'accurate_category_induk' => $newInduk] + $category,
         ];
+    }
+
+    /**
+     * Kategori Induk — see KATEGORI_INDUK_MAP. Unrecognized prefixes (a new
+     * category the user hasn't told us about yet) fall through to null
+     * rather than guessing, same policy as every other derived field here.
+     */
+    protected function deriveKategoriInduk(string $itemno): ?string
+    {
+        $prefix = mb_strtoupper(substr($itemno, 0, 3));
+
+        return self::KATEGORI_INDUK_MAP[$prefix] ?? null;
     }
 
     /**
@@ -661,18 +725,32 @@ class AccurateSyncService
         }
 
         $existing = Ri::query()
-            ->select('id', 'accurate_apinvoice_id', 'accurate_seq', 'no_ri', 'tgl_ri', 'divisi', 'vendor', 'no_po',
+            ->select('id', 'accurate_apinvoice_id', 'accurate_seq', 'no_ri', 'tgl_ri', 'divisi', 'vendor', 'vendor_id', 'no_po',
                 'shipdate', 'keterangan', 'kode_barang', 'deskripsi_barang', 'kuantitas', 'satuan', 'harga_satuan',
-                'pemeriksa', 'accurate_synced_at')
+                'pemeriksa', 'accurate_po_item_id', 'accurate_synced_at')
             ->get()
             ->keyBy(fn ($r) => $r->accurate_apinvoice_id.'-'.$r->accurate_seq);
+
+        // Accurate's own APITMDET.POID/POSEQ chains an RI line back to the PO
+        // line it received against — verified against real data (an APITMDET
+        // row's POID/POSEQ resolves to a real PODET row, same ITEMNO).
+        // Resolved once into our own purchase_order_items' ids; only ~46% of
+        // RI lines have this (the rest are internal stock-take style
+        // receipts with no PO), which is expected, not a bug.
+        $poItemIdByPoKey = PurchaseOrderItem::query()
+            ->join('purchase_orders', 'purchase_orders.id', '=', 'purchase_order_items.purchase_order_id')
+            ->whereNotNull('purchase_order_items.accurate_seq')
+            ->whereNotNull('purchase_orders.accurate_po_id')
+            ->get(['purchase_order_items.id', 'purchase_orders.accurate_po_id', 'purchase_order_items.accurate_seq'])
+            ->keyBy(fn ($i) => $i->accurate_po_id.'-'.$i->accurate_seq)
+            ->map(fn ($i) => $i->id);
 
         $rows = DB::table('accurate_apitmdet as d')
             ->join('accurate_apinv as h', 'd.APINVOICEID', '=', 'h.APINVOICEID')
             ->leftJoin('accurate_persondata as v', 'h.VENDORID', '=', 'v.ID')
             ->select(
                 'd.APINVOICEID as APINVOICEID', 'd.SEQ as SEQ', 'd.ITEMNO', 'd.ITEMOVDESC', 'd.QUANTITY', 'd.ITEMUNIT',
-                'd.UNITPRICE', 'd.ITEMRESERVED3',
+                'd.UNITPRICE', 'd.ITEMRESERVED3', 'd.POID', 'd.POSEQ',
                 'h.INVOICENO', 'h.INVOICEDATE', 'h.PURCHASEORDERNO', 'h.SHIPDATE', 'h.DESCRIPTION',
                 'v.NAME as VENDORNAME'
             )
@@ -683,7 +761,7 @@ class AccurateSyncService
             $counts['total']++;
 
             try {
-                $outcome = $this->syncOneRiLine($row, $existing);
+                $outcome = $this->syncOneRiLine($row, $existing, $poItemIdByPoKey);
                 $counts[$outcome['bucket']]++;
 
                 SyncLog::create([
@@ -716,7 +794,7 @@ class AccurateSyncService
     /**
      * @return array{bucket:string,action:string,message:string,old_data?:array,new_data?:array}
      */
-    protected function syncOneRiLine(object $row, \Illuminate\Support\Collection $existingByKey): array
+    protected function syncOneRiLine(object $row, \Illuminate\Support\Collection $existingByKey, \Illuminate\Support\Collection $poItemIdByPoKey): array
     {
         if ($row->APINVOICEID === null || $row->SEQ === null) {
             return ['bucket' => 'skipped', 'action' => 'SKIP', 'message' => 'APINVOICEID/SEQ kosong — data tidak valid.'];
@@ -724,11 +802,18 @@ class AccurateSyncService
 
         $key = $row->APINVOICEID.'-'.$row->SEQ;
 
+        // Same PERSONDATA source as PO's vendor — resolve to the same
+        // `vendors` row (via firstOrCreate's unique(name), idempotent whether
+        // PO or RI sync gets to a given vendor first) rather than leaving the
+        // RI<->PO vendor relationship as two separately-typed strings.
+        $vendor = $this->findOrCreateAccurateVendor($row->VENDORNAME);
+
         $new = [
             'no_ri' => $row->INVOICENO,
             'tgl_ri' => $row->INVOICEDATE,
             'divisi' => $this->deriveDivisiFromDocNumber($row->INVOICENO),
             'vendor' => $row->VENDORNAME,
+            'vendor_id' => $vendor->id,
             'no_po' => $row->PURCHASEORDERNO,
             'shipdate' => $row->SHIPDATE,
             'keterangan' => $row->DESCRIPTION,
@@ -738,6 +823,9 @@ class AccurateSyncService
             'satuan' => $row->ITEMUNIT,
             'harga_satuan' => $row->UNITPRICE !== null ? (float) $row->UNITPRICE : null,
             'pemeriksa' => $row->ITEMRESERVED3,
+            'accurate_po_item_id' => ($row->POID !== null && $row->POSEQ !== null)
+                ? $poItemIdByPoKey->get($row->POID.'-'.$row->POSEQ)
+                : null,
         ];
 
         $existing = $existingByKey->get($key);
@@ -777,6 +865,464 @@ class AccurateSyncService
             'message' => "RI baru dari invoice {$row->INVOICENO} baris {$row->SEQ}.",
             'new_data' => $new,
         ];
+    }
+
+    /**
+     * PO — unlike NPBG/PPB/RI, `purchase_orders`/`purchase_order_items` already
+     * represent the real thing (an order sent to a vendor), just not yet
+     * reconciled against Accurate's own PO/PODET. Per explicit user decision,
+     * there is no separate mirror page here: real Accurate POs are synced
+     * straight into these tables as additional rows (accurate_po_id/accurate_seq
+     * set), sitting alongside whatever the internal DRAFT->APPROVED->SENT->
+     * RECEIVED workflow already created (accurate_po_id null) — no attempt is
+     * made to match/merge the two, since there is no reliable key linking an
+     * internally-generated PO number to a real Accurate PONO.
+     *
+     * Counted per PO header (not per PODET line, unlike the other syncers)
+     * since PO/PODET is a real relational header+lines document, matching the
+     * shape purchase_orders/purchase_order_items already has.
+     *
+     * @return array{total:int,inserted:int,updated:int,skipped:int,errors:int}
+     */
+    protected function syncPo(SyncBatch $batch): array
+    {
+        $counts = ['total' => 0, 'inserted' => 0, 'updated' => 0, 'skipped' => 0, 'errors' => 0];
+
+        if (! DB::getSchemaBuilder()->hasTable('accurate_po') || ! DB::getSchemaBuilder()->hasTable('accurate_podet')) {
+            return $counts;
+        }
+
+        $unitsByCode = Unit::pluck('id', 'code')->keyBy(fn ($id, $code) => mb_strtoupper(trim($code)));
+        $itemIdsByCode = Item::pluck('id', 'code');
+        $defaultSiteId = Site::query()->orderBy('id')->value('id');
+
+        // Accurate's own PODET.REQID/REQSEQ chains a PO line back to the PPB
+        // (REQUISITIONDET) line it was raised from — verified against real
+        // data (a PODET row's REQID/REQSEQ resolves to a real REQUISITIONDET
+        // row, same ITEMNO). Resolved once into our own `ppb` mirror's ids.
+        $ppbIdByReqKey = Ppb::query()->select('id', 'accurate_reqid', 'accurate_seq')->get()
+            ->keyBy(fn ($p) => $p->accurate_reqid.'-'.$p->accurate_seq)
+            ->map(fn ($p) => $p->id);
+
+        $headers = DB::table('accurate_po as h')
+            ->leftJoin('accurate_persondata as v', 'h.VENDORID', '=', 'v.ID')
+            ->select(
+                'h.POID as POID', 'h.PONO', 'h.PODATE', 'h.EXPECTED', 'h.CLOSED', 'h.POAMOUNT',
+                'h.TAX1AMOUNT', 'h.TAX2AMOUNT', 'h.DESCRIPTION', 'v.NAME as VENDORNAME'
+            )
+            ->orderBy('h.POID')
+            ->get();
+
+        foreach ($headers as $h) {
+            $counts['total']++;
+
+            try {
+                $outcome = $this->syncOnePo($h, $unitsByCode, $itemIdsByCode, $defaultSiteId, $ppbIdByReqKey);
+                $counts[$outcome['bucket']]++;
+
+                SyncLog::create([
+                    'sync_batch_id' => $batch->id,
+                    'entity' => 'po',
+                    'source_id' => (string) $h->POID,
+                    'action' => $outcome['action'],
+                    'status' => 'SUCCESS',
+                    'message' => $outcome['message'],
+                    'old_data' => $outcome['old_data'] ?? null,
+                    'new_data' => $outcome['new_data'] ?? null,
+                ]);
+            } catch (Throwable $e) {
+                $counts['errors']++;
+
+                SyncLog::create([
+                    'sync_batch_id' => $batch->id,
+                    'entity' => 'po',
+                    'source_id' => (string) ($h->POID ?? '?'),
+                    'action' => 'ERROR',
+                    'status' => 'FAILED',
+                    'message' => $e->getMessage(),
+                ]);
+            }
+        }
+
+        return $counts;
+    }
+
+    /**
+     * @return array{bucket:string,action:string,message:string,old_data?:array,new_data?:array}
+     */
+    protected function syncOnePo(
+        object $h,
+        \Illuminate\Support\Collection $unitsByCode,
+        \Illuminate\Support\Collection $itemIdsByCode,
+        ?int $defaultSiteId,
+        \Illuminate\Support\Collection $ppbIdByReqKey
+    ): array {
+        if ($h->POID === null) {
+            return ['bucket' => 'skipped', 'action' => 'SKIP', 'message' => 'POID kosong — data tidak valid.'];
+        }
+
+        $lines = DB::table('accurate_podet')
+            ->where('POID', $h->POID)
+            ->select('SEQ', 'ITEMNO', 'ITEMOVDESC', 'QUANTITY', 'QTYRECV', 'UNITPRICE', 'ITEMUNIT', 'CLOSED', 'REQID', 'REQSEQ')
+            ->orderBy('SEQ')
+            ->get();
+
+        $totalQty = (float) $lines->sum('QUANTITY');
+        $totalRecv = (float) $lines->sum('QTYRECV');
+        // Accurate has no DRAFT/SUBMITTED concept — a PO recorded there is
+        // already a committed document — so status is derived from received
+        // quantity (richer than Accurate's own CLOSED flag alone).
+        $status = match (true) {
+            $totalQty > 0 && $totalRecv >= $totalQty - 1e-6 => 'RECEIVED',
+            $totalRecv > 0 => 'PARTIAL_RECEIVED',
+            (int) $h->CLOSED === 1 => 'CLOSED',
+            default => 'SENT',
+        };
+
+        $tax = (float) (($h->TAX1AMOUNT ?? 0) + ($h->TAX2AMOUNT ?? 0));
+        $total = (float) ($h->POAMOUNT ?? 0);
+
+        $new = [
+            'number' => $h->PONO,
+            'date' => $h->PODATE,
+            'expected_date' => $h->EXPECTED,
+            'status' => $status,
+            'subtotal' => round($total - $tax, 2),
+            'tax' => $tax,
+            'total' => $total,
+            'notes' => $h->DESCRIPTION,
+        ];
+
+        $vendor = $this->findOrCreateAccurateVendor($h->VENDORNAME);
+
+        $po = PurchaseOrder::where('accurate_po_id', $h->POID)->first();
+
+        if ($po) {
+            $old = collect($new)->keys()->mapWithKeys(fn ($f) => [$f => $po->{$f} instanceof \Carbon\Carbon ? $po->{$f}->toDateString() : $po->{$f}])->all();
+            $headerUnchanged = collect($new)->every(function ($v, $f) use ($po) {
+                $current = $po->{$f};
+                if ($current instanceof \Carbon\Carbon) {
+                    $current = $current->toDateString();
+                }
+
+                return (string) ($current ?? '') === (string) ($v ?? '');
+            }) && $po->vendor_id === $vendor->id;
+
+            // Lines are always (re)synced even when the header looks unchanged
+            // — e.g. totalRecv can move from 5 to 8 out of 10 without the
+            // derived header status changing, but the individual line's own
+            // qty_received/line_status still needs to move.
+            $linesChanged = $this->syncPoLines($po, $lines, $unitsByCode, $itemIdsByCode, $ppbIdByReqKey);
+
+            if ($headerUnchanged && ! $linesChanged && $po->accurate_synced_at !== null) {
+                return ['bucket' => 'skipped', 'action' => 'SKIP', 'message' => 'Tidak ada perubahan.'];
+            }
+
+            $po->forceFill($new + ['vendor_id' => $vendor->id, 'accurate_synced_at' => now()])->save();
+
+            return [
+                'bucket' => 'updated', 'action' => 'UPDATE',
+                'message' => "PO {$h->PONO} diperbarui.",
+                'old_data' => $old, 'new_data' => $new,
+            ];
+        }
+
+        $po = PurchaseOrder::create($new + [
+            'accurate_po_id' => $h->POID,
+            'vendor_id' => $vendor->id,
+            'site_id' => $defaultSiteId,
+            'accurate_synced_at' => now(),
+        ]);
+        $this->syncPoLines($po, $lines, $unitsByCode, $itemIdsByCode, $ppbIdByReqKey);
+
+        return [
+            'bucket' => 'inserted', 'action' => 'INSERT',
+            'message' => "PO baru dari Accurate: {$h->PONO}.",
+            'new_data' => $new,
+        ];
+    }
+
+    /**
+     * Upsert every PODET line for one PO header, keyed by (purchase_order_id,
+     * accurate_seq). Returns whether anything actually changed, so the caller
+     * can fold that into its own unchanged/skip decision.
+     */
+    protected function syncPoLines(PurchaseOrder $po, \Illuminate\Support\Collection $lines, \Illuminate\Support\Collection $unitsByCode, \Illuminate\Support\Collection $itemIdsByCode, \Illuminate\Support\Collection $ppbIdByReqKey): bool
+    {
+        $existingBySeq = PurchaseOrderItem::where('purchase_order_id', $po->id)
+            ->whereNotNull('accurate_seq')
+            ->get()
+            ->keyBy('accurate_seq');
+
+        $changed = false;
+
+        foreach ($lines as $line) {
+            $qty = (float) ($line->QUANTITY ?? 0);
+            $unitPrice = (float) ($line->UNITPRICE ?? 0);
+            $qtyReceived = (float) ($line->QTYRECV ?? 0);
+            $lineStatus = match (true) {
+                $qty > 0 && $qtyReceived >= $qty - 1e-6 => 'RECEIVED',
+                $qtyReceived > 0 => 'PARTIAL_RECEIVED',
+                (int) ($line->CLOSED ?? 0) === 1 => 'CLOSED',
+                default => 'PENDING',
+            };
+
+            $attrs = [
+                'item_id' => $itemIdsByCode->get($line->ITEMNO),
+                'description_raw' => $line->ITEMOVDESC ?? '-',
+                'qty' => $qty,
+                'unit_id' => $unitsByCode->get(mb_strtoupper(trim((string) ($line->ITEMUNIT ?? '')))),
+                'unit_price' => $unitPrice,
+                'line_total' => round($qty * $unitPrice, 2),
+                'qty_received' => $qtyReceived,
+                'line_status' => $lineStatus,
+                'accurate_ppb_id' => ($line->REQID !== null && $line->REQSEQ !== null)
+                    ? $ppbIdByReqKey->get($line->REQID.'-'.$line->REQSEQ)
+                    : null,
+            ];
+
+            $existing = $existingBySeq->get($line->SEQ);
+            if ($existing) {
+                $lineUnchanged = collect($attrs)->every(fn ($v, $f) => (string) ($existing->{$f} ?? '') === (string) ($v ?? ''));
+                if (! $lineUnchanged) {
+                    $existing->forceFill($attrs)->save();
+                    $changed = true;
+                }
+            } else {
+                PurchaseOrderItem::create($attrs + ['purchase_order_id' => $po->id, 'accurate_seq' => $line->SEQ]);
+                $changed = true;
+            }
+        }
+
+        return $changed;
+    }
+
+    /**
+     * Find a Vendor by exact name (case-sensitive, matching the unique
+     * constraint on vendors.name) or create a placeholder flagged for human
+     * review — same source='accurate'+needs_review=true pattern already used
+     * by App\Console\Commands\Accurate\ImportNewItems for auto-created rows.
+     */
+    protected function findOrCreateAccurateVendor(?string $name): Vendor
+    {
+        $name = trim((string) $name) ?: 'VENDOR ACCURATE TANPA NAMA';
+
+        return Vendor::firstOrCreate(
+            ['name' => $name],
+            ['is_active' => true, 'needs_review' => true, 'source' => 'accurate']
+        );
+    }
+
+    /**
+     * Stock Opname — same situation as PO: `stock_opnames`/`stock_opname_items`
+     * already represent the real thing (a physical count reconciled against
+     * system qty), just not yet synced against Accurate's own record of it.
+     * Accurate's ITEMADJ (header) + ITADJDET (lines) is that record — verified
+     * against real data: the DESCRIPTION literally says e.g. "STOK OPNAME TGL
+     * 10.09.2026", and ITADJDET.NEWQTY/CURRENTQTY/QTYDIFFERENCE map exactly
+     * onto physical_qty/system_qty/difference.
+     *
+     * No line-level accurate_seq column: stock_opname_items already enforces
+     * unique(stock_opname_id, item_id), which doubles as the right upsert key
+     * here (one line per item per opname) — one known ITEMADJ has the same
+     * ITEMNO twice across two SEQs; the second simply overwrites the first,
+     * an acceptable resolution for a single edge case in the source data.
+     *
+     * Accurate's own stock effect is NOT re-applied to stock_movements/
+     * inventory — same rule as every other Accurate sync in this app
+     * (Accurate's qty is reference-only, see this class's docblock). This
+     * only mirrors the opname record itself; no stock_adjustments row is
+     * created and StockLedgerService is never called.
+     *
+     * Counted per ITEMADJ header (not per ITADJDET line), same reasoning as
+     * syncPo(): a real relational header+lines document, matching the shape
+     * stock_opnames/stock_opname_items already has.
+     *
+     * @return array{total:int,inserted:int,updated:int,skipped:int,errors:int}
+     */
+    protected function syncStockOpname(SyncBatch $batch): array
+    {
+        $counts = ['total' => 0, 'inserted' => 0, 'updated' => 0, 'skipped' => 0, 'errors' => 0];
+
+        if (! DB::getSchemaBuilder()->hasTable('accurate_itemadj') || ! DB::getSchemaBuilder()->hasTable('accurate_itadjdet')) {
+            return $counts;
+        }
+
+        $itemIdsByCode = Item::pluck('id', 'code');
+        $defaultSiteId = Site::query()->orderBy('id')->value('id');
+        $defaultWarehouseId = Warehouse::query()->orderBy('id')->value('id');
+
+        $headers = DB::table('accurate_itemadj')
+            ->select('ITEMADJID', 'ADJNO', 'ADJDATE', 'ADJCHECK', 'DESCRIPTION')
+            ->orderBy('ITEMADJID')
+            ->get();
+
+        foreach ($headers as $h) {
+            $counts['total']++;
+
+            try {
+                $outcome = $this->syncOneStockOpname($h, $itemIdsByCode, $defaultSiteId, $defaultWarehouseId);
+                $counts[$outcome['bucket']]++;
+
+                SyncLog::create([
+                    'sync_batch_id' => $batch->id,
+                    'entity' => 'stock_opname',
+                    'source_id' => (string) $h->ITEMADJID,
+                    'action' => $outcome['action'],
+                    'status' => 'SUCCESS',
+                    'message' => $outcome['message'],
+                    'old_data' => $outcome['old_data'] ?? null,
+                    'new_data' => $outcome['new_data'] ?? null,
+                ]);
+            } catch (Throwable $e) {
+                $counts['errors']++;
+
+                SyncLog::create([
+                    'sync_batch_id' => $batch->id,
+                    'entity' => 'stock_opname',
+                    'source_id' => (string) ($h->ITEMADJID ?? '?'),
+                    'action' => 'ERROR',
+                    'status' => 'FAILED',
+                    'message' => $e->getMessage(),
+                ]);
+            }
+        }
+
+        return $counts;
+    }
+
+    /**
+     * @return array{bucket:string,action:string,message:string,old_data?:array,new_data?:array}
+     */
+    protected function syncOneStockOpname(
+        object $h,
+        \Illuminate\Support\Collection $itemIdsByCode,
+        ?int $defaultSiteId,
+        ?int $defaultWarehouseId
+    ): array {
+        if ($h->ITEMADJID === null) {
+            return ['bucket' => 'skipped', 'action' => 'SKIP', 'message' => 'ITEMADJID kosong — data tidak valid.'];
+        }
+
+        $lines = DB::table('accurate_itadjdet')
+            ->where('ITEMADJID', $h->ITEMADJID)
+            ->select('SEQ', 'ITEMNO', 'NEWQTY', 'CURRENTQTY')
+            ->orderBy('SEQ')
+            ->get();
+
+        // Accurate has no SCHEDULED/IN_PROGRESS concept — a physical count
+        // only ever reaches ITEMADJ once counted — so ADJCHECK (posted/final
+        // in Accurate's own books) is the only signal available: checked ->
+        // COMPLETED (matches our terminal reviewed-and-approved state),
+        // unchecked -> PENDING_REVIEW (counts are in, not yet finalized).
+        $status = (int) $h->ADJCHECK === 1 ? 'COMPLETED' : 'PENDING_REVIEW';
+
+        $new = [
+            'number' => (string) $h->ADJNO,
+            'scheduled_date' => $h->ADJDATE,
+            'status' => $status,
+        ];
+
+        $opname = StockOpname::where('accurate_itemadj_id', $h->ITEMADJID)->first();
+
+        if ($opname) {
+            $old = collect($new)->keys()->mapWithKeys(fn ($f) => [$f => $opname->{$f} instanceof \Carbon\Carbon ? $opname->{$f}->toDateString() : $opname->{$f}])->all();
+            $headerUnchanged = collect($new)->every(function ($v, $f) use ($opname) {
+                $current = $opname->{$f};
+                if ($current instanceof \Carbon\Carbon) {
+                    $current = $current->toDateString();
+                }
+
+                return (string) ($current ?? '') === (string) ($v ?? '');
+            });
+
+            // Lines are always (re)synced even when the header looks
+            // unchanged — same reasoning as syncPoLines().
+            $linesChanged = $this->syncStockOpnameLines($opname, $lines, $itemIdsByCode, $status, $defaultWarehouseId);
+
+            if ($headerUnchanged && ! $linesChanged && $opname->accurate_synced_at !== null) {
+                return ['bucket' => 'skipped', 'action' => 'SKIP', 'message' => 'Tidak ada perubahan.'];
+            }
+
+            $opname->forceFill($new + ['accurate_synced_at' => now()])->save();
+
+            return [
+                'bucket' => 'updated', 'action' => 'UPDATE',
+                'message' => "Stock Opname {$h->ADJNO} diperbarui.",
+                'old_data' => $old, 'new_data' => $new,
+            ];
+        }
+
+        $opname = StockOpname::create($new + [
+            'accurate_itemadj_id' => $h->ITEMADJID,
+            'site_id' => $defaultSiteId,
+            'warehouse_id' => $defaultWarehouseId,
+            'type' => 'PARTIAL',
+            'accurate_synced_at' => now(),
+        ]);
+        $this->syncStockOpnameLines($opname, $lines, $itemIdsByCode, $status, $defaultWarehouseId);
+
+        return [
+            'bucket' => 'inserted', 'action' => 'INSERT',
+            'message' => "Stock Opname baru dari Accurate: {$h->ADJNO}.",
+            'new_data' => $new,
+        ];
+    }
+
+    /**
+     * Upsert every ITADJDET line for one ITEMADJ header, keyed by
+     * (stock_opname_id, item_id) — stock_opname_items' own unique
+     * constraint. Returns whether anything actually changed.
+     */
+    protected function syncStockOpnameLines(StockOpname $opname, \Illuminate\Support\Collection $lines, \Illuminate\Support\Collection $itemIdsByCode, string $headerStatus, ?int $defaultWarehouseId): bool
+    {
+        $existingByItemId = StockOpnameItem::where('stock_opname_id', $opname->id)->get()->keyBy('item_id');
+        // Never-mutated snapshot of the DB state as it was BEFORE this pass,
+        // purely for the "did the final state actually change" check below.
+        $originalByItemId = $existingByItemId->map(fn ($i) => $i->only(['item_id', 'warehouse_id', 'system_qty', 'physical_qty', 'count_status', 'review_status']));
+        $reviewStatus = $headerStatus === 'COMPLETED' ? 'APPROVED' : 'PENDING';
+
+        // One known ITEMADJID repeats the same ITEMNO across two SEQs (see
+        // class docblock) — always write every line (last SEQ wins for that
+        // item), and separately track just the final attrs actually reached
+        // per item, so "changed" reflects the end result rather than
+        // flip-flopping mid-pass on that one edge case.
+        $finalAttrsByItemId = [];
+
+        foreach ($lines as $line) {
+            $itemId = $itemIdsByCode->get($line->ITEMNO);
+            if ($itemId === null) {
+                continue; // ITEMNO not a real Master Barang product (or not yet synced) — skip rather than guess.
+            }
+
+            $attrs = [
+                'item_id' => $itemId,
+                'warehouse_id' => $defaultWarehouseId,
+                'system_qty' => (float) ($line->CURRENTQTY ?? 0),
+                'physical_qty' => (float) ($line->NEWQTY ?? 0),
+                'count_status' => 'COUNTED',
+                'review_status' => $reviewStatus,
+            ];
+            $finalAttrsByItemId[$itemId] = $attrs;
+
+            $existing = $existingByItemId->get($itemId);
+            if ($existing) {
+                $existing->forceFill($attrs)->save();
+            } else {
+                $existing = StockOpnameItem::create($attrs + ['stock_opname_id' => $opname->id]);
+                $existingByItemId->put($itemId, $existing);
+            }
+        }
+
+        foreach ($finalAttrsByItemId as $itemId => $attrs) {
+            $original = $originalByItemId->get($itemId);
+            $unchanged = $original !== null && collect($attrs)->every(fn ($v, $f) => (string) ($original[$f] ?? '') === (string) ($v ?? ''));
+            if (! $unchanged) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**

@@ -13,7 +13,11 @@ class PurchaseOrder extends Model
 
     protected function casts(): array
     {
-        return ['date' => 'date', 'expected_date' => 'date', 'approved_at' => 'datetime', 'subtotal' => 'float', 'tax' => 'float', 'total' => 'float'];
+        return [
+            'date' => 'date', 'expected_date' => 'date', 'approved_at' => 'datetime',
+            'subtotal' => 'float', 'tax' => 'float', 'total' => 'float',
+            'accurate_synced_at' => 'datetime',
+        ];
     }
 
     public function items()

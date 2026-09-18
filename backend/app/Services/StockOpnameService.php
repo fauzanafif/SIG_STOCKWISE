@@ -84,6 +84,7 @@ class StockOpnameService
 
     public function start(StockOpname $opname, User $user): StockOpname
     {
+        $this->assertNotAccurate($opname);
         $this->assert($opname, ['SCHEDULED', 'RECOUNT_REQUIRED']);
         $opname->update(['status' => 'IN_PROGRESS', 'started_at' => now(), 'counted_by' => $user->id]);
 
@@ -92,6 +93,7 @@ class StockOpnameService
 
     public function count(StockOpnameItem $line, float $physicalQty, ?string $note): StockOpnameItem
     {
+        $this->assertNotAccurate($line->opname);
         $this->assert($line->opname, ['IN_PROGRESS']);
 
         $line->update([
@@ -105,6 +107,7 @@ class StockOpnameService
 
     public function submit(StockOpname $opname): StockOpname
     {
+        $this->assertNotAccurate($opname);
         $this->assert($opname, ['IN_PROGRESS']);
 
         $items = $opname->items()->get();
@@ -135,6 +138,10 @@ class StockOpnameService
      */
     public function review(StockOpname $opname, User $reviewer, array $decisions, ?string $note): StockOpname
     {
+        // Real ITEMADJ rows land in PENDING_REVIEW too (see AccurateSyncService::syncOneStockOpname)
+        // — without this guard, review() would create a stock_adjustment + STOCK_ADJUSTMENT
+        // movement for an adjustment Accurate already recorded and (possibly) already posted itself.
+        $this->assertNotAccurate($opname);
         $this->assert($opname, ['PENDING_REVIEW']);
 
         return DB::transaction(function () use ($opname, $reviewer, $decisions, $note) {
@@ -204,5 +211,10 @@ class StockOpnameService
                 'status' => ["Aksi tidak valid untuk status opname {$opname->status}."],
             ]);
         }
+    }
+
+    private function assertNotAccurate(StockOpname $opname): void
+    {
+        abort_if($opname->accurate_itemadj_id !== null, 422, 'Stock Opname ini berasal dari Accurate — sudah berupa dokumen final, tidak melalui alur hitung/review internal.');
     }
 }

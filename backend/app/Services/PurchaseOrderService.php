@@ -83,6 +83,7 @@ class PurchaseOrderService
 
     public function approve(PurchaseOrder $po, User $user): PurchaseOrder
     {
+        abort_if($po->accurate_po_id !== null, 422, 'PO ini berasal dari Accurate — sudah berupa dokumen final, tidak melalui alur approve internal.');
         $this->assert($po, ['DRAFT']);
         $po->update(['status' => 'APPROVED', 'approved_by' => $user->id, 'approved_at' => now()]);
 
@@ -91,6 +92,7 @@ class PurchaseOrderService
 
     public function send(PurchaseOrder $po): PurchaseOrder
     {
+        abort_if($po->accurate_po_id !== null, 422, 'PO ini berasal dari Accurate — sudah berupa dokumen final, tidak melalui alur approve internal.');
         $this->assert($po, ['APPROVED']);
         $po->update(['status' => 'SENT']);
 
@@ -99,6 +101,7 @@ class PurchaseOrderService
 
     public function cancel(PurchaseOrder $po, string $reason): PurchaseOrder
     {
+        abort_if($po->accurate_po_id !== null, 422, 'PO ini berasal dari Accurate — hanya bisa diubah/dibatalkan di Accurate.');
         abort_if(in_array($po->status, ['RECEIVED', 'CLOSED', 'CANCELLED'], true), 422, 'PO tidak bisa dibatalkan.');
         abort_if($po->receivings()->where('status', 'CONFIRMED')->exists(), 422, 'PO sudah ada penerimaan.');
         $po->update(['status' => 'CANCELLED', 'notes' => trim(($po->notes ?? '')."\nDibatalkan: {$reason}")]);

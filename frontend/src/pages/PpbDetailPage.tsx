@@ -1,4 +1,4 @@
-import { useParams } from 'react-router-dom'
+import { Link, useParams } from 'react-router-dom'
 import { usePpb } from '@/features/ppb/api'
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -61,6 +61,24 @@ export function PpbDetailPage() {
           )}
         </CardContent>
       </Card>
+
+      {(ppb.purchased_via?.length ?? 0) > 0 && (
+        <Card>
+          <CardContent className="space-y-1 p-4 text-sm">
+            <div className="font-medium">Dipesan via PO</div>
+            {ppb.purchased_via!.map((p) => (
+              <div key={p.purchase_order_id} className="flex items-center justify-between">
+                <Link to={`/purchase-orders/${p.purchase_order_id}`} className="font-mono text-xs text-primary hover:underline">
+                  {p.number ?? '—'}
+                </Link>
+                <span className="text-xs text-muted-foreground">
+                  {p.qty_received}/{p.qty} diterima
+                </span>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      )}
 
       {ppb.accurate_synced_at && (
         <p className="text-xs text-muted-foreground">

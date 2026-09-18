@@ -28,15 +28,16 @@ class ItemResource extends JsonResource
                 'name' => $this->category->name,
                 'path' => $this->category->path,
             ] : null),
-            // Kategori Induk/Anak 1/2/3 barang: diturunkan dari ITEMDESCRIPTION
-            // milik rantai PARENTITEM Accurate (kolom accurate_category_anak_*,
-            // diisi oleh AccurateSyncService), BUKAN dari tree kategori Excel
+            // Kategori Anak 1/2/3 barang: diturunkan dari ITEMDESCRIPTION milik
+            // rantai PARENTITEM Accurate (kolom accurate_category_anak_*, diisi
+            // oleh AccurateSyncService), BUKAN dari tree kategori Excel
             // (`categories`/category_id — itu masih ada, dipakai fitur lain,
-            // lihat field `category` di atas). Kategori Induk selalu null:
-            // node ITEMNO 0-titik tidak pernah ada di data Accurate perusahaan
-            // ini — lihat docs/accurate-database-analysis.md §12.
+            // lihat field `category` di atas). Kategori Induk BUKAN dari rantai
+            // PARENTITEM (level itu selalu null di data Accurate perusahaan
+            // ini) — diturunkan dari 3 huruf depan kode barang lewat tabel
+            // terjemahan tetap, lihat AccurateSyncService::KATEGORI_INDUK_MAP.
             'category_breakdown' => [
-                'induk' => null,
+                'induk' => $this->accurate_category_induk,
                 'anak_1' => $this->accurate_category_anak_1,
                 'anak_2' => $this->accurate_category_anak_2,
                 'anak_3' => $this->accurate_category_anak_3,

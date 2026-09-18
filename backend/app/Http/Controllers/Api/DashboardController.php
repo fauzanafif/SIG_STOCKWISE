@@ -10,9 +10,11 @@ use App\Models\InventoryAnalysisRun;
 use App\Models\LendTransaction;
 use App\Models\MaintenanceOrder;
 use App\Models\MaterialRequest;
+use App\Models\Ppb;
 use App\Models\PurchaseProposal;
 use App\Models\PurchaseOrder;
 use App\Models\Receiving;
+use App\Models\Ri;
 use App\Models\StockMovement;
 use App\Models\StockOpname;
 use Illuminate\Http\JsonResponse;
@@ -94,6 +96,25 @@ class DashboardController extends Controller
                 'value' => PurchaseOrder::whereIn('status', ['APPROVED', 'SENT', 'PARTIAL_RECEIVED'])->count()];
             $cards[] = ['key' => 'ri_checking', 'label' => 'Penerimaan diperiksa', 'tone' => 'warning',
                 'value' => Receiving::where('status', 'CHECKING')->count()];
+        }
+
+        // ---- Purchasing dari Accurate (PPB/PO/RI mirror) ----
+        if ($user->hasPermission('ppb.view') || $user->hasPermission('ri.view') || $user->hasPermission('po.view')) {
+            if ($user->hasPermission('ppb.view')) {
+                $cards[] = ['key' => 'ppb_accurate_open', 'label' => 'PPB terbuka (Accurate)', 'tone' => 'warning',
+                    'value' => Ppb::where('status', 'OPEN')->count()];
+            }
+            if ($user->hasPermission('ri.view')) {
+                $cards[] = ['key' => 'ri_accurate_month', 'label' => 'RI bulan ini (Accurate)', 'tone' => 'default',
+                    'value' => Ri::whereMonth('tgl_ri', now()->month)->whereYear('tgl_ri', now()->year)->count()];
+            }
+            if ($user->hasPermission('po.view')) {
+                $poStatus = PurchaseOrder::query()->whereNotNull('accurate_po_id')
+                    ->selectRaw('status, count(*) c')->groupBy('status')->pluck('c', 'status');
+                if ($poStatus->isNotEmpty()) {
+                    $charts['po_status'] = $poStatus->map(fn ($c, $s) => ['name' => $s, 'value' => (int) $c])->values();
+                }
+            }
         }
 
         // ---- Tracking ----

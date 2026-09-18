@@ -44,8 +44,16 @@ class PpbController extends Controller
         ]);
     }
 
-    public function show(Ppb $ppb): PpbResource
+    public function show(Ppb $ppb): JsonResponse
     {
-        return new PpbResource($ppb);
+        $ppb->load('poItems:id,accurate_ppb_id,purchase_order_id,qty,qty_received', 'poItems.purchaseOrder:id,number');
+
+        return response()->json(['data' => (new PpbResource($ppb))->resolve() + [
+            // Accurate's own PODET.REQID/REQSEQ chain — which PO lines were raised from this PPB line.
+            'purchased_via' => $ppb->poItems->map(fn ($i) => [
+                'purchase_order_id' => $i->purchase_order_id, 'number' => $i->purchaseOrder?->number,
+                'qty' => $i->qty, 'qty_received' => $i->qty_received,
+            ]),
+        ]]);
     }
 }

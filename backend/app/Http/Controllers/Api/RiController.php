@@ -16,7 +16,7 @@ class RiController extends Controller
 {
     public function index(Request $request): JsonResponse
     {
-        $query = Ri::query();
+        $query = Ri::query()->with('poItem:id,purchase_order_id', 'poItem.purchaseOrder:id,number');
 
         if ($s = $request->string('search')->trim()->value()) {
             $query->where(function ($q) use ($s) {
@@ -46,6 +46,8 @@ class RiController extends Controller
 
     public function show(Ri $ri): RiResource
     {
+        $ri->load('poItem:id,purchase_order_id', 'poItem.purchaseOrder:id,number');
+
         return new RiResource($ri);
     }
 }

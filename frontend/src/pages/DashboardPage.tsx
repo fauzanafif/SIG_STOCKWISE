@@ -24,8 +24,9 @@ import { cn } from '@/lib/utils'
 
 function AccurateSyncWidget() {
   const { hasPermission } = useAuth()
-  const { data: sync } = useSyncStatus()
-  if (!hasPermission('sync.accurate.view')) return null
+  const canView = hasPermission('sync.accurate.view')
+  const { data: sync } = useSyncStatus(canView)
+  if (!canView) return null
 
   const badgeVariant =
     sync?.status === 'SUCCESS' ? 'success' : sync?.status === 'FAILED' ? 'danger' : sync?.status === 'PARTIAL' ? 'warning' : 'neutral'
@@ -130,6 +131,34 @@ export function DashboardPage() {
                   <Bar dataKey="in" name="Masuk" fill="#22c55e" radius={[3, 3, 0, 0]} />
                   <Bar dataKey="out" name="Keluar" fill="#ef4444" radius={[3, 3, 0, 0]} />
                 </BarChart>
+              </ResponsiveContainer>
+            </CardContent>
+          </Card>
+        )}
+
+        {data?.charts.po_status && data.charts.po_status.length > 0 && (
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Status PO (Accurate)</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <ResponsiveContainer width="100%" height={240}>
+                <PieChart>
+                  <Pie
+                    data={data.charts.po_status}
+                    dataKey="value"
+                    nameKey="name"
+                    innerRadius={50}
+                    outerRadius={85}
+                    paddingAngle={2}
+                  >
+                    {data.charts.po_status.map((_, i) => (
+                      <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />
+                    ))}
+                  </Pie>
+                  <Tooltip />
+                  <Legend />
+                </PieChart>
               </ResponsiveContainer>
             </CardContent>
           </Card>

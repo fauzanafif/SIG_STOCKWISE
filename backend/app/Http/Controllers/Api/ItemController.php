@@ -73,13 +73,17 @@ class ItemController extends Controller
      * {anak_1: "AUTOMOTIVE WHEELS & TIRES", anak_2: "BAN LUAR (TIRES)", anak_3: "BAN LUAR BENANG (NYLON TIRES)"}.
      * The frontend builds a 3-level cascading filter from this flat list
      * client-side (same approach as CategoryPicker.tsx for the Excel tree).
-     * No "induk" combination: that level is always NULL, see index() above.
+     * accurate_category_induk is included per row too, but it's an
+     * independent classification (derived from the item code prefix, not
+     * Accurate's PARENTITEM chain — see AccurateSyncService::KATEGORI_INDUK_MAP)
+     * so the frontend treats it as its own standalone filter, not cascaded
+     * with anak_1/2/3.
      */
     public function accurateCategoryOptions(): JsonResponse
     {
         $options = Item::query()
             ->whereNotNull('accurate_category_anak_1')
-            ->select('accurate_category_anak_1', 'accurate_category_anak_2', 'accurate_category_anak_3')
+            ->select('accurate_category_anak_1', 'accurate_category_anak_2', 'accurate_category_anak_3', 'accurate_category_induk')
             ->distinct()
             ->orderBy('accurate_category_anak_1')
             ->orderBy('accurate_category_anak_2')

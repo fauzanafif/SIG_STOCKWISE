@@ -9,6 +9,8 @@ export interface Ri {
   tgl_ri: string | null
   divisi: string | null
   vendor: string | null
+  /** Resolved `vendors` row id — same one PO sync creates/uses for this Accurate vendor. */
+  vendor_id?: number | null
   no_po: string | null
   shipdate: string | null
   kode_barang: string | null
@@ -18,6 +20,8 @@ export interface Ri {
   harga_satuan: number | null
   pemeriksa: string | null
   keterangan: string | null
+  /** Accurate's own APITMDET.POID/POSEQ chain — the PO line this RI line received against, if any (only ~46% of RI lines have one; the rest are internal stock-take style receipts with no PO). */
+  source_po?: { purchase_order_id: number; purchase_order_item_id: number; number: string | null } | null
   accurate_synced_at: string | null
   created_at: string
   updated_at: string

@@ -30,7 +30,11 @@ class PurchaseOrderController extends Controller
 
     public function show(PurchaseOrder $purchaseOrder): JsonResponse
     {
-        $purchaseOrder->load('vendor', 'ppb:id,number', 'items.item:id,code', 'items.unit:id,code', 'receivings:id,number,status,purchase_order_id');
+        $purchaseOrder->load(
+            'vendor', 'ppb:id,number', 'items.item:id,code', 'items.unit:id,code',
+            'items.accuratePpb:id,no_ppb', 'items.riLines:id,accurate_po_item_id,no_ri,kuantitas,tgl_ri',
+            'receivings:id,number,status,purchase_order_id'
+        );
 
         return response()->json(['data' => $this->row($purchaseOrder) + [
             'vendor' => $purchaseOrder->vendor?->only('id', 'name'),
@@ -41,6 +45,9 @@ class PurchaseOrderController extends Controller
                 'id' => $l->id, 'item_code' => $l->item?->code, 'description' => $l->description_raw,
                 'qty' => $l->qty, 'unit' => $l->unit?->code, 'unit_price' => $l->unit_price,
                 'line_total' => $l->line_total, 'qty_received' => $l->qty_received, 'line_status' => $l->line_status,
+                // Accurate's own PODET.REQID/REQSEQ chain — which PPB (REQUISITIONDET) this line was raised from, and which RI lines received against it.
+                'source_ppb' => $l->accuratePpb ? ['id' => $l->accuratePpb->id, 'no_ppb' => $l->accuratePpb->no_ppb] : null,
+                'received_via' => $l->riLines->map(fn ($r) => ['id' => $r->id, 'no_ri' => $r->no_ri, 'kuantitas' => $r->kuantitas, 'tgl_ri' => $r->tgl_ri?->toDateString()]),
             ]),
             'receivings' => $purchaseOrder->receivings->map(fn ($r) => $r->only('id', 'number', 'status')),
         ]]);
@@ -91,6 +98,7 @@ class PurchaseOrderController extends Controller
             'vendor_name' => $p->relationLoaded('vendor') ? $p->vendor?->name : null,
             'ppb_id' => $p->ppb_id, 'items_count' => $p->items_count,
             'total' => $p->total, 'created_at' => $p->created_at, 'approved_at' => $p->approved_at,
+            'accurate_po_id' => $p->accurate_po_id, 'accurate_synced_at' => $p->accurate_synced_at,
         ];
     }
 }

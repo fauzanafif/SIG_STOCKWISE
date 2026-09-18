@@ -41,6 +41,9 @@ export interface Opname {
   reviewed_at: string | null
   review_note: string | null
   items?: OpnameLine[]
+  /** Non-null when this row was synced straight from Accurate ITEMADJ/ITADJDET — read-only, no internal start/count/submit/review. */
+  accurate_itemadj_id?: number | null
+  accurate_synced_at?: string | null
 }
 
 export function useOpnames(params: { status?: string; page?: number }) {

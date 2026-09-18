@@ -32,4 +32,16 @@ class PurchaseOrderItem extends Model
     {
         return $this->belongsTo(PurchaseProposalItem::class, 'ppb_item_id');
     }
+
+    /** The Accurate PPB (REQUISITIONDET) line this PO line was raised from — chain PPB->PO from Accurate's own PODET.REQID/REQSEQ, not the internal usulan-pembelian workflow above. */
+    public function accuratePpb()
+    {
+        return $this->belongsTo(Ppb::class, 'accurate_ppb_id');
+    }
+
+    /** RI (APITMDET) lines that fulfilled this PO line — Accurate's own APITMDET.POID/POSEQ chain. */
+    public function riLines()
+    {
+        return $this->hasMany(Ri::class, 'accurate_po_item_id');
+    }
 }

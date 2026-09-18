@@ -20,6 +20,7 @@ class StockOpname extends Model
             'started_at' => 'datetime',
             'submitted_at' => 'datetime',
             'reviewed_at' => 'datetime',
+            'accurate_synced_at' => 'datetime',
         ];
     }
 

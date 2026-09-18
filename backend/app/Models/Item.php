@@ -22,7 +22,7 @@ class Item extends Model
         'default_location_id', 'blueprint_img_path', 'blueprint_pdf_path',
         'blueprint_3d_ref', 'source', 'is_active',
         'accurate_synced_at', 'accurate_qty_onhand', 'accurate_qty_onorder',
-        'accurate_category_anak_1', 'accurate_category_anak_2', 'accurate_category_anak_3',
+        'accurate_category_anak_1', 'accurate_category_anak_2', 'accurate_category_anak_3', 'accurate_category_induk',
     ];
 
     protected function casts(): array
@@ -145,9 +145,14 @@ class Item extends Model
         // sumber yang sama persis dengan yang ditampilkan di kolom "Kategori
         // Anak 1/2/3" tabel Master Barang. Sengaja dipisah dari filter
         // category_induk/category_anak_* di atas (tree kategori Excel lama,
-        // tidak diubah). Tidak ada filter "accurate_category_induk": level itu
-        // selalu NULL untuk semua barang (tidak ada sumbernya di Accurate),
-        // lihat docs/accurate-database-analysis.md §12.
+        // tidak diubah).
+        // accurate_category_induk BUKAN dari rantai PARENTITEM Accurate (level
+        // itu selalu NULL di data perusahaan ini) — diturunkan dari 3 huruf
+        // depan kode barang lewat tabel terjemahan tetap yang diberikan user,
+        // lihat AccurateSyncService::KATEGORI_INDUK_MAP. Independen dari
+        // anak_1/2/3 (dua sistem klasifikasi yang tidak berhubungan), jadi
+        // sengaja tidak dibuat cascading dengan filter anak_1/2/3 di atas.
+        $request->whenFilled('accurate_category_induk', fn ($v) => $query->where('items.accurate_category_induk', $v));
         $request->whenFilled('accurate_category_anak_1', fn ($v) => $query->where('items.accurate_category_anak_1', $v));
         $request->whenFilled('accurate_category_anak_2', fn ($v) => $query->where('items.accurate_category_anak_2', $v));
         $request->whenFilled('accurate_category_anak_3', fn ($v) => $query->where('items.accurate_category_anak_3', $v));

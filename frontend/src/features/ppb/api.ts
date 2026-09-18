@@ -21,6 +21,8 @@ export interface Ppb {
   accurate_synced_at: string | null
   created_at: string
   updated_at: string
+  /** Accurate's own PODET.REQID/REQSEQ chain — PO lines raised from this PPB line (only on the detail response). */
+  purchased_via?: { purchase_order_id: number; number: string | null; qty: number; qty_received: number }[]
 }
 
 export function usePpbList(params: {

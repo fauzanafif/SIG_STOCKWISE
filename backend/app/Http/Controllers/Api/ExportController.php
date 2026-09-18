@@ -80,7 +80,7 @@ class ExportController extends Controller
                     ->lazy()
                     ->map(fn (Item $i) => [
                         $i->code,
-                        null, // Kategori Induk — selalu NULL, tidak ada sumbernya di Accurate (§12)
+                        $i->accurate_category_induk,
                         $i->accurate_category_anak_1, $i->accurate_category_anak_2, $i->accurate_category_anak_3,
                         $i->description, $i->unit?->code, $i->accurate_qty_onhand,
                         $i->needs_blueprint ? 'Ya' : 'Tidak', 'Tidak',

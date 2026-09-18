@@ -113,6 +113,10 @@ export interface PoLine {
   line_total: number
   qty_received: number
   line_status: string
+  /** Accurate's own PODET.REQID/REQSEQ chain — the PPB (mirror) line this PO line was raised from, if any. */
+  source_ppb?: { id: number; no_ppb: string | null } | null
+  /** RI lines that received against this PO line. */
+  received_via?: { id: number; no_ri: string | null; kuantitas: number | null; tgl_ri: string | null }[]
 }
 
 export interface PurchaseOrder {
@@ -132,6 +136,9 @@ export interface PurchaseOrder {
   approved_at?: string | null
   items?: PoLine[]
   receivings?: { id: number; number: string; status: string }[]
+  /** Non-null when this row was synced straight from Accurate PO/PODET — read-only, no internal approve/send/cancel. */
+  accurate_po_id?: number | null
+  accurate_synced_at?: string | null
 }
 
 export function usePoList(params: { status?: string; search?: string; page?: number }) {

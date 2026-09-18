@@ -66,7 +66,9 @@ def get_connection():
     fdb.load_api(fb_library_name=client_lib)
     dsn = f"{host}/{port}:{database}"
     try:
-        return fdb.connect(dsn=dsn, user=user, password=password, charset="UTF8")
+        # See firebird/introspect.py::connect() — this GDB's text columns are
+        # declared charset NONE but actually hold Windows-1252 bytes.
+        return fdb.connect(dsn=dsn, user=user, password=password, charset="WIN1252")
     except fdb.fbcore.DatabaseError as exc:
         print(f"ERROR: could not connect to '{dsn}' as '{user}': {exc}", file=sys.stderr)
         sys.exit(1)

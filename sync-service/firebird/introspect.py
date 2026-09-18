@@ -33,7 +33,16 @@ def connect():
         dsn=FirebirdSettings.dsn(),
         user=FirebirdSettings.user,
         password=FirebirdSettings.password,
-        charset="UTF8",
+        # GUDANGSIG2025.GDB's own default charset (and every text column checked
+        # so far, e.g. ITEM.ITEMDESCRIPTION) is declared NONE — Firebird's way of
+        # saying "raw bytes, no charset enforced". The bytes were actually typed
+        # in Windows-1252 (e.g. "Ø" for diameter, 0xD8) by the legacy Windows
+        # app. Connecting with charset=UTF8 tries to decode those raw bytes as
+        # UTF-8, which fails for anything outside ASCII and silently corrupts it
+        # to U+FFFD (a black-diamond "?") before it ever leaves this process —
+        # confirmed via scripts/diagnose_encoding.py against a real bad row
+        # (AUT.0182). WIN1252 decodes every byte 0x00-0xFF, so nothing is lost.
+        charset="WIN1252",
     )
 
 

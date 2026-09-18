@@ -17,7 +17,15 @@ class RiResource extends JsonResource
             'tgl_ri' => $this->tgl_ri?->toDateString(),
             'divisi' => $this->divisi,
             'vendor' => $this->vendor,
+            // Resolved `vendors` row — same one PO sync creates/uses for this Accurate PERSONDATA (not every RI vendor is a real external vendor, e.g. internal stock-take entries; flagged needs_review on the vendor itself, not here).
+            'vendor_id' => $this->vendor_id,
             'no_po' => $this->no_po,
+            // Accurate's own APITMDET.POID/POSEQ chain — which PO line this RI line received against (resolved FK, not just the free-text no_po header field above).
+            'source_po' => $this->whenLoaded('poItem', fn () => $this->poItem ? [
+                'purchase_order_id' => $this->poItem->purchase_order_id,
+                'purchase_order_item_id' => $this->poItem->id,
+                'number' => $this->poItem->purchaseOrder?->number,
+            ] : null),
             'shipdate' => $this->shipdate?->toDateString(),
             'kode_barang' => $this->kode_barang,
             'deskripsi_barang' => $this->deskripsi_barang,
