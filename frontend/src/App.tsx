@@ -4,6 +4,7 @@ import { Toaster } from 'sonner'
 import { AuthProvider } from '@/auth/AuthProvider'
 import { queryClient } from '@/lib/queryClient'
 import { router } from '@/router'
+import { SyncProgressModal } from '@/components/SyncProgressModal'
 
 export default function App() {
   return (
@@ -11,6 +12,7 @@ export default function App() {
       <AuthProvider>
         <RouterProvider router={router} />
         <Toaster richColors position="top-right" closeButton />
+        <SyncProgressModal />
       </AuthProvider>
     </QueryClientProvider>
   )

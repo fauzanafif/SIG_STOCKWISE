@@ -3,9 +3,11 @@
 namespace Tests\Feature\Tracking;
 
 use App\Models\Asset;
+use App\Models\Inventory;
 use App\Models\Item;
 use App\Models\Site;
 use App\Models\Vendor;
+use App\Models\Warehouse;
 use Database\Seeders\RbacSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
@@ -138,6 +140,7 @@ class TrackingFlowTest extends TestCase
     {
         $this->actingAsRole('admin_gudang', ['site_id' => $this->site->id]);
         $item = Item::factory()->create();
+        $warehouse = Warehouse::factory()->create(['site_id' => $this->site->id]);
 
         $ur = $this->postJson('/api/used-returns', [
             'npbg_ref_raw' => 'NA/25/VIII/138',
@@ -149,8 +152,19 @@ class TrackingFlowTest extends TestCase
         $this->assertSame('PENDING', $ur['status']);
         $this->assertSame(2, $ur['items_count']);
 
-        $this->postJson("/api/used-returns/{$ur['id']}/close", [])
-            ->assertOk()->assertJsonPath('data.status', 'CLEAR');
+        // close() must not just flip status — it should actually create+confirm
+        // a Receiving (source_type USED_RETURN) from these lines and move stock
+        // for the into_stock=true REUSABLE line, per docs/status-flow.md §8.
+        $closed = $this->postJson("/api/used-returns/{$ur['id']}/close", ['warehouse_id' => $warehouse->id])
+            ->assertOk()->assertJsonPath('data.status', 'CLEAR')->json('data');
+        $this->assertNotNull($closed['ri_number'], 'closing must link a real Receiving number');
+
+        $inv = Inventory::where('item_id', $item->id)->where('warehouse_id', $warehouse->id)->first();
+        $this->assertNotNull($inv, 'the REUSABLE/into_stock line must have produced a stock movement');
+        $this->assertSame(3.0, (float) $inv->actual_qty);
+
+        $this->postJson("/api/used-returns/{$ur['id']}/close", ['warehouse_id' => $warehouse->id])
+            ->assertStatus(422);
     }
 
     public function test_karyawan_cannot_create_lend(): void
@@ -293,7 +307,8 @@ class TrackingFlowTest extends TestCase
         $this->putJson("/api/used-returns/{$ur['id']}", ['note' => 'revisi'])
             ->assertOk()->assertJsonPath('data.note', 'revisi');
 
-        $this->postJson("/api/used-returns/{$ur['id']}/close", []);
+        $warehouse = Warehouse::factory()->create(['site_id' => $this->site->id]);
+        $this->postJson("/api/used-returns/{$ur['id']}/close", ['warehouse_id' => $warehouse->id])->assertOk();
         $this->putJson("/api/used-returns/{$ur['id']}", ['note' => 'x'])->assertStatus(422);
         $this->deleteJson("/api/used-returns/{$ur['id']}")->assertStatus(422);
     }

@@ -9,9 +9,9 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 class SyncBatch extends Model
 {
     protected $fillable = [
-        'sync_code', 'source', 'started_at', 'finished_at', 'status',
+        'sync_code', 'source', 'started_at', 'finished_at', 'status', 'current_step',
         'total_records', 'inserted_records', 'updated_records', 'skipped_records',
-        'error_records', 'error_message', 'created_by',
+        'deleted_records', 'error_records', 'error_message', 'created_by',
     ];
 
     protected function casts(): array

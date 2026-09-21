@@ -195,9 +195,27 @@ export interface UsedReturnRow {
   format: string
   npbg_ref: string | null
   npbg_number?: string | null
+  /** The internal Receiving created once this is actually closed (see UsedReturnService::close()) — for a derived row, `number` itself is already the source RI's own number, so there's no separate "accurate RI" field. */
   ri_number?: string | null
   return_date: string | null
   items_count?: number
   note?: string | null
+  from_accurate?: boolean
   items?: { id: number; item_code: string | null; component_type: string | null; description: string | null; qty: number; condition: string; into_stock: boolean }[]
+}
+
+/** Flat list row — one per item line, same shape/spirit as `Ri` (features/ri/api.ts): the list itself mirrors RI's format, per explicit user instruction. `id` is the HEADER id (opens the same detail/close modal as UsedReturnRow); `line_id` uniquely keys this rendered row. */
+export interface UsedReturnLineRow {
+  id: number
+  line_id: number
+  number: string
+  return_date: string | null
+  status: string
+  kode_barang: string | null
+  deskripsi_barang: string | null
+  kuantitas: number | null
+  satuan: string | null
+  condition: string
+  into_stock: boolean
+  from_accurate: boolean
 }

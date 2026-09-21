@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Package, Pencil, Trash2 } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
-import { useTrackingAction, useTrackingCreate, useTrackingDelete, useTrackingUpdate, type StppRow } from '@/features/tracking/api'
+import { useTrackingAction, useTrackingCreate, useTrackingDelete, useTrackingItem, useTrackingUpdate, type StppRow } from '@/features/tracking/api'
 import { useAuth } from '@/auth/AuthContext'
 import { apiErrorMessage } from '@/lib/api'
 import { ItemPicker } from '@/components/ItemPicker'
@@ -141,14 +141,21 @@ function EditForm({ row, onDone }: { row: StppRow; onDone: () => void }) {
   )
 }
 
-function Detail({ row, onDone }: { row: StppRow; onDone: () => void }) {
+function Detail({ id, onDone }: { id: number; onDone: () => void }) {
   const qc = useQueryClient()
   const { hasPermission } = useAuth()
-  const action = useTrackingAction<StppRow>('stpp', row.id)
+  // The list row omits fields that need an eager-loaded relation (out_npbg,
+  // return_ri) to keep the index query cheap across every module — a fresh
+  // fetch here is what actually shows them, not the row that was clicked.
+  const { data: row, isLoading, refetch } = useTrackingItem<StppRow>('stpp', id)
+  const action = useTrackingAction<StppRow>('stpp', id)
   const del = useTrackingDelete('stpp')
   const [note, setNote] = useState('')
   const [err, setErr] = useState<string | null>(null)
   const [editing, setEditing] = useState(false)
+
+  if (isLoading || !row) return <p className="text-muted-foreground">Memuat…</p>
+
   const done = (name: string, body?: unknown) =>
     action.mutate(
       { action: name, body },
@@ -161,12 +168,21 @@ function Detail({ row, onDone }: { row: StppRow; onDone: () => void }) {
       },
     )
 
-  function remove() {
+  const remove = () => {
     if (!window.confirm(`Hapus STPP ${row.number}?`)) return
     del.mutate(row.id, { onSuccess: onDone, onError: (e) => setErr(apiErrorMessage(e)) })
   }
 
-  if (editing) return <EditForm row={row} onDone={() => setEditing(false)} />
+  if (editing)
+    return (
+      <EditForm
+        row={row}
+        onDone={() => {
+          setEditing(false)
+          refetch()
+        }}
+      />
+    )
 
   return (
     <div className="space-y-4">
@@ -226,7 +242,7 @@ export function StppPage() {
       canCreate={hasPermission('stpp.create')}
       createLabel="Serahkan Alat"
       renderCreate={(close) => <CreateForm onDone={close} />}
-      renderDetail={(row, close) => <Detail row={row} onDone={close} />}
+      renderDetail={(row, close) => <Detail id={row.id} onDone={close} />}
       detailTitle={(row) => row.number}
     />
   )

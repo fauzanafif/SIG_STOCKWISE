@@ -88,7 +88,9 @@ export function RiListPage() {
       {result && (
         <div className="rounded-md border bg-card p-3 text-sm">
           Sync {result.status === 'SUCCESS' ? 'selesai' : result.status.toLowerCase()} — Total {result.total_records},
-          Baru {result.inserted_records}, Diperbarui {result.updated_records}, Dilewati {result.skipped_records},
+          Baru {result.inserted_records}, Diperbarui {result.updated_records},
+          Dihapus <span className={result.deleted_records > 0 ? 'text-destructive' : ''}>{result.deleted_records}</span>,
+          Dilewati {result.skipped_records},
           Error <span className={result.error_records > 0 ? 'text-destructive' : ''}>{result.error_records}</span>
           {result.error_message && <p className="mt-1 text-destructive">{result.error_message}</p>}
         </div>

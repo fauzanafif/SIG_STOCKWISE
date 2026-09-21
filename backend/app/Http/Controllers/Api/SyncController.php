@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\Item;
 use App\Models\SyncBatch;
 use App\Services\Accurate\AccurateSyncService;
 use Illuminate\Http\Request;
@@ -37,12 +38,56 @@ class SyncController extends Controller
 
     public function show(SyncBatch $syncBatch)
     {
+        // A full sync can log tens of thousands of SKIP rows (e.g. Stock
+        // Opname re-checking ~2,500 unchanged items every run) that would
+        // otherwise crowd the ADD/UPDATE/DELETE/ERROR rows entirely out of
+        // this capped window — surface the actually-interesting actions
+        // first, only filling the rest of the 500 with SKIP once those run out.
+        $logs = $syncBatch->logs()
+            ->orderByRaw("CASE action WHEN 'ERROR' THEN 0 WHEN 'DELETE' THEN 1 WHEN 'INSERT' THEN 2 WHEN 'UPDATE' THEN 3 ELSE 4 END")
+            ->latest('id')
+            ->limit(500)
+            ->get();
+
         return response()->json([
             'data' => [
                 ...$this->batchSummary($syncBatch),
-                'logs' => $syncBatch->logs()->latest('id')->limit(500)->get(),
+                'logs' => $this->attachItemInfo($logs),
             ],
         ]);
+    }
+
+    /**
+     * "ID Barang"/"Nama Barang" per baris log — untuk entity 'item' kode
+     * barangnya adalah source_id itu sendiri (ITEMNO), untuk npbg/ppb/ri ada
+     * di payload sebagai kode_barang. po/stock_opname log per HEADER
+     * (mencakup banyak barang sekaligus) jadi memang tidak ada satu barang
+     * untuk diresolusi di sana — item_id/item_name-nya null.
+     */
+    protected function attachItemInfo(\Illuminate\Support\Collection $logs): \Illuminate\Support\Collection
+    {
+        $codeOf = function ($log) {
+            if ($log->entity === 'item') {
+                return $log->source_id ?: null;
+            }
+            $data = $log->new_data ?? $log->old_data ?? [];
+
+            return $data['kode_barang'] ?? null;
+        };
+
+        $codes = $logs->map($codeOf)->filter()->unique()->values();
+        $itemsByCode = Item::whereIn('code', $codes)->select('id', 'code', 'description')->get()->keyBy('code');
+
+        return $logs->map(function ($log) use ($codeOf, $itemsByCode) {
+            $code = $codeOf($log);
+            $item = $code ? $itemsByCode->get($code) : null;
+            $data = $log->new_data ?? $log->old_data ?? [];
+
+            $log->setAttribute('item_id', $item?->id);
+            $log->setAttribute('item_name', $data['deskripsi_barang'] ?? $data['description'] ?? $item?->description ?? null);
+
+            return $log;
+        });
     }
 
     public function store(Request $request, AccurateSyncService $service)
@@ -66,6 +111,7 @@ class SyncController extends Controller
             'sync_code' => $batch->sync_code,
             'source' => $batch->source,
             'status' => $batch->status,
+            'current_step' => $batch->current_step,
             'started_at' => $batch->started_at,
             'finished_at' => $batch->finished_at,
             'duration_seconds' => $batch->durationSeconds(),
@@ -73,6 +119,7 @@ class SyncController extends Controller
             'inserted_records' => $batch->inserted_records,
             'updated_records' => $batch->updated_records,
             'skipped_records' => $batch->skipped_records,
+            'deleted_records' => $batch->deleted_records,
             'error_records' => $batch->error_records,
             'error_message' => $batch->error_message,
         ];

@@ -232,4 +232,70 @@ class AccurateNpbgSyncTest extends TestCase
         $res = $this->postJson('/api/sync/accurate')->assertCreated();
         $res->assertJsonPath('data.status', 'SUCCESS')->assertJsonPath('data.total_records', 0);
     }
+
+    public function test_row_deleted_in_accurate_is_deleted_in_stockwise_on_resync(): void
+    {
+        // Stockwise must end up an exact mirror of Accurate (explicit user
+        // instruction) — a row Accurate no longer has is hard-deleted here too.
+        // A second, untouched invoice is seeded alongside it so the resync's
+        // fetch legitimately returns data — proving this is a real single-row
+        // deletion, not the "fetch came back empty" case guarded separately below.
+        $this->seedInvoice(['ARINVOICEID' => 60, 'INVOICENO' => 'A/6'], [['SEQ' => 1, 'ITEMOVDESC' => 'Barang Hilang', 'QUANTITY' => 7]]);
+        $this->seedInvoice(['ARINVOICEID' => 99, 'INVOICENO' => 'A/99'], [['SEQ' => 1, 'QUANTITY' => 1]]);
+
+        $this->actingAsRole('admin_gudang');
+        $this->postJson('/api/sync/accurate')->assertJsonPath('data.inserted_records', 2);
+        $npbg = Npbg::where('accurate_arinvoice_id', 60)->firstOrFail();
+
+        DB::table('accurate_arinvdet')->where('ARINVOICEID', 60)->delete();
+        DB::table('accurate_arinv')->where('ARINVOICEID', 60)->delete();
+
+        $res = $this->postJson('/api/sync/accurate')->assertCreated();
+        $res->assertJsonPath('data.deleted_records', 1);
+
+        $this->assertModelMissing($npbg);
+
+        $log = \App\Models\SyncLog::where('entity', 'npbg')->where('action', 'DELETE')->where('source_id', '60-1')->firstOrFail();
+        $this->assertSame('Barang Hilang', $log->old_data['deskripsi_barang']);
+    }
+
+    public function test_all_rows_disappearing_at_once_is_treated_as_a_broken_fetch_not_a_mass_delete(): void
+    {
+        // A staging refresh that silently comes back with 0 rows (network
+        // blip, partial Firebird read) must never be read as "Accurate
+        // deleted everything" — that would wipe the whole npbg table.
+        $this->seedInvoice(['ARINVOICEID' => 90, 'INVOICENO' => 'A/9'], [['SEQ' => 1, 'QUANTITY' => 1]]);
+        $this->seedInvoice(['ARINVOICEID' => 91, 'INVOICENO' => 'A/10'], [['SEQ' => 1, 'QUANTITY' => 1]]);
+
+        $this->actingAsRole('admin_gudang');
+        $this->postJson('/api/sync/accurate')->assertJsonPath('data.inserted_records', 2);
+
+        DB::table('accurate_arinvdet')->truncate();
+        DB::table('accurate_arinv')->truncate();
+
+        // The batch is correctly flagged FAILED/502 here — the safety guard
+        // tripping is a real anomaly worth surfacing loudly, not a quiet success.
+        $res = $this->postJson('/api/sync/accurate');
+        $res->assertJsonPath('data.deleted_records', 0);
+
+        $this->assertSame(2, Npbg::whereIn('accurate_arinvoice_id', [90, 91])->count(), 'existing rows must survive a suspicious all-empty fetch');
+        $this->assertNotNull(\App\Models\SyncLog::where('entity', 'npbg')->where('action', 'ERROR')->where('source_id', '-')->first());
+    }
+
+    public function test_untouched_rows_survive_resync(): void
+    {
+        // Guards against the except()-on-Eloquent-Collection pitfall (filters by
+        // primary key, not the keyBy() key) silently treating every existing row
+        // as an orphan and wiping the whole table on every sync.
+        $this->seedInvoice(['ARINVOICEID' => 61, 'INVOICENO' => 'A/7'], [['SEQ' => 1, 'QUANTITY' => 1]]);
+        $this->seedInvoice(['ARINVOICEID' => 62, 'INVOICENO' => 'A/8'], [['SEQ' => 1, 'QUANTITY' => 2]]);
+
+        $this->actingAsRole('admin_gudang');
+        $this->postJson('/api/sync/accurate')->assertJsonPath('data.inserted_records', 2);
+
+        $res = $this->postJson('/api/sync/accurate')->assertCreated();
+        $res->assertJsonPath('data.deleted_records', 0)->assertJsonPath('data.skipped_records', 2);
+
+        $this->assertSame(2, Npbg::whereIn('accurate_arinvoice_id', [61, 62])->count());
+    }
 }

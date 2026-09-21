@@ -11,11 +11,14 @@ use App\Models\Ri;
 use App\Models\Site;
 use App\Models\StockOpname;
 use App\Models\StockOpnameItem;
+use App\Models\StppTransaction;
 use App\Models\SyncBatch;
 use App\Models\SyncLog;
 use App\Models\Unit;
+use App\Models\UsedReturn;
 use App\Models\Vendor;
 use App\Models\Warehouse;
+use App\Services\DocumentNumberService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Process;
 use Throwable;
@@ -77,6 +80,8 @@ class AccurateSyncService
         'AST' => 'Assets',
     ];
 
+    public function __construct(private readonly DocumentNumberService $numbers) {}
+
     public function run(?int $userId = null): SyncBatch
     {
         $this->reapStaleRunningBatches();
@@ -91,6 +96,7 @@ class AccurateSyncService
             'source' => 'accurate',
             'started_at' => now(),
             'status' => 'RUNNING',
+            'current_step' => 'staging',
             'created_by' => $userId,
         ]);
 
@@ -100,6 +106,7 @@ class AccurateSyncService
             $batch->update([
                 'status' => 'FAILED',
                 'finished_at' => now(),
+                'current_step' => null,
                 'error_message' => $e->getMessage(),
             ]);
 
@@ -110,26 +117,55 @@ class AccurateSyncService
         // RI's accurate_po_item_id resolves against `purchase_order_items`
         // rows — both need their upstream link already synced in this same run
         // (see AccurateSyncService::syncPo()/syncRi() chain-linking comments).
+        // current_step is a short stable key (frontend maps it to a label),
+        // written before each phase (not after) so a client polling
+        // GET /api/sync/status mid-run — see useSyncStatus()'s fast refetch
+        // while RUNNING — can show real progress, not a guess.
+        $batch->update(['current_step' => 'items']);
         $itemCounts = $this->syncItems($batch);
+
+        $batch->update(['current_step' => 'npbg']);
         $npbgCounts = $this->syncNpbg($batch);
+
+        // Derived from the NPBG rows just synced above, not from Accurate
+        // staging tables directly — see deriveStppFromNpbg() docblock.
+        $batch->update(['current_step' => 'stpp']);
+        $stppCounts = $this->deriveStppFromNpbg($batch);
+
+        $batch->update(['current_step' => 'ppb']);
         $ppbCounts = $this->syncPpb($batch);
+
+        $batch->update(['current_step' => 'po']);
         $poCounts = $this->syncPo($batch);
+
+        $batch->update(['current_step' => 'ri']);
         $riCounts = $this->syncRi($batch);
+
+        // Derived from the RI rows just synced above (divisi "NV" only, per
+        // explicit user instruction) — see deriveUsedReturnsFromRi() docblock.
+        $batch->update(['current_step' => 'used_returns']);
+        $usedReturnCounts = $this->deriveUsedReturnsFromRi($batch);
+
+        $batch->update(['current_step' => 'stock_opname']);
         $soCounts = $this->syncStockOpname($batch);
         $counts = [
-            'total' => $itemCounts['total'] + $npbgCounts['total'] + $ppbCounts['total'] + $riCounts['total'] + $poCounts['total'] + $soCounts['total'],
-            'inserted' => $itemCounts['inserted'] + $npbgCounts['inserted'] + $ppbCounts['inserted'] + $riCounts['inserted'] + $poCounts['inserted'] + $soCounts['inserted'],
+            'total' => $itemCounts['total'] + $npbgCounts['total'] + $stppCounts['total'] + $ppbCounts['total'] + $riCounts['total'] + $usedReturnCounts['total'] + $poCounts['total'] + $soCounts['total'],
+            'inserted' => $itemCounts['inserted'] + $npbgCounts['inserted'] + $stppCounts['inserted'] + $ppbCounts['inserted'] + $riCounts['inserted'] + $usedReturnCounts['inserted'] + $poCounts['inserted'] + $soCounts['inserted'],
             'updated' => $itemCounts['updated'] + $npbgCounts['updated'] + $ppbCounts['updated'] + $riCounts['updated'] + $poCounts['updated'] + $soCounts['updated'],
-            'skipped' => $itemCounts['skipped'] + $npbgCounts['skipped'] + $ppbCounts['skipped'] + $riCounts['skipped'] + $poCounts['skipped'] + $soCounts['skipped'],
-            'errors' => $itemCounts['errors'] + $npbgCounts['errors'] + $ppbCounts['errors'] + $riCounts['errors'] + $poCounts['errors'] + $soCounts['errors'],
+            'skipped' => $itemCounts['skipped'] + $npbgCounts['skipped'] + $stppCounts['skipped'] + $ppbCounts['skipped'] + $riCounts['skipped'] + $usedReturnCounts['skipped'] + $poCounts['skipped'] + $soCounts['skipped'],
+            // Only npbg/ppb/ri ever produce a 'deleted' bucket (see deleteOrphans()) — item/po/stock_opname arrays don't have that key at all.
+            'deleted' => ($npbgCounts['deleted'] ?? 0) + ($ppbCounts['deleted'] ?? 0) + ($riCounts['deleted'] ?? 0),
+            'errors' => $itemCounts['errors'] + $npbgCounts['errors'] + $stppCounts['errors'] + $ppbCounts['errors'] + $riCounts['errors'] + $usedReturnCounts['errors'] + $poCounts['errors'] + $soCounts['errors'],
         ];
 
         $batch->update([
             'finished_at' => now(),
+            'current_step' => null,
             'total_records' => $counts['total'],
             'inserted_records' => $counts['inserted'],
             'updated_records' => $counts['updated'],
             'skipped_records' => $counts['skipped'],
+            'deleted_records' => $counts['deleted'],
             'error_records' => $counts['errors'],
             'status' => $counts['errors'] > 0
                 ? ($counts['inserted'] + $counts['updated'] > 0 ? 'PARTIAL' : 'FAILED')
@@ -149,6 +185,7 @@ class AccurateSyncService
             ->each(fn (SyncBatch $b) => $b->update([
                 'status' => 'FAILED',
                 'finished_at' => now(),
+                'current_step' => null,
                 'error_message' => 'Interrupted — no completion recorded within '.self::STALE_RUNNING_MINUTES.' minutes (process likely crashed or was killed).',
             ]));
     }
@@ -411,6 +448,70 @@ class AccurateSyncService
     }
 
     /**
+     * NPBG/PPB/RI must end up an exact mirror of Accurate — per explicit user
+     * instruction, a row that no longer appears in Accurate's current data
+     * (deleted there) is hard-deleted here too, not just flagged. Safe to do:
+     * traced every FK across the schema that once pointed at npbg/ppb — the
+     * tracking tables (lend/borrow/stpp/tyre/maintenance/manufacturing/used-
+     * return) were built against the OLD internal npbg/ppb tables, and
+     * migrations 2026_09_15_090001/2026_09_16_100001 renamed those away to
+     * goods_issues/purchase_proposals before these Accurate-mirror tables
+     * were (re)created under the freed names — MySQL's RENAME TABLE moved
+     * those FKs along with the rename, so they point at the renamed tables,
+     * never at npbg/ppb/ri. The only real dependent is npbg_verifications
+     * (cascadeOnDelete), which correctly disappears with its source document.
+     *
+     * @param  \Illuminate\Support\Collection<string, \Illuminate\Database\Eloquent\Model>  $existingByKey  every Stockwise row before this sync, keyed the same way as $seenKeys
+     * @param  array<int, string>  $seenKeys  keys still present in Accurate's current data
+     * @param  \Closure(\Illuminate\Database\Eloquent\Model): string  $describe  short human label for the log message, e.g. fn ($n) => "NPBG {$n->no_npbg} baris ini"
+     * @return array{deleted:int,errors:int}
+     */
+    protected function deleteOrphans(\Illuminate\Support\Collection $existingByKey, array $seenKeys, SyncBatch $batch, string $entity, \Closure $describe): array
+    {
+        // A staging refresh that silently comes back empty (Python step "ran"
+        // but wrote 0 rows — network blip, partial Firebird read, etc.) must
+        // never be read as "Accurate deleted everything" — that would wipe the
+        // whole table. Only trust the fetch enough to delete when it actually
+        // returned SOME current rows; a suspicious all-empty fetch is refused
+        // and flagged instead, leaving existing data untouched.
+        if ($seenKeys === [] && $existingByKey->isNotEmpty()) {
+            SyncLog::create([
+                'sync_batch_id' => $batch->id,
+                'entity' => $entity,
+                'source_id' => '-',
+                'action' => 'ERROR',
+                'status' => 'FAILED',
+                'message' => "Accurate tidak mengembalikan data {$entity} sama sekali padahal Stockwise sudah punya {$existingByKey->count()} baris — kemungkinan staging refresh gagal sebagian, bukan penghapusan massal di Accurate. Deteksi hapus dilewati demi keamanan data; periksa sync-service.",
+            ]);
+
+            return ['deleted' => 0, 'errors' => 1];
+        }
+
+        // $existingByKey is really an Eloquent\Collection (keyBy()'d by an
+        // Accurate composite key, e.g. "REQID-SEQ") — its except()/only() are
+        // overridden to filter by the model's PRIMARY KEY, not the collection
+        // key, so calling except() directly here would silently match nothing
+        // and treat every row as an orphan. Re-wrapping as a plain Collection
+        // restores the normal by-array-key semantics we actually want.
+        $orphans = collect($existingByKey->all())->except($seenKeys);
+
+        foreach ($orphans as $key => $model) {
+            SyncLog::create([
+                'sync_batch_id' => $batch->id,
+                'entity' => $entity,
+                'source_id' => (string) $key,
+                'action' => 'DELETE',
+                'status' => 'SUCCESS',
+                'message' => $describe($model).' sudah tidak ada di Accurate — dihapus dari Stockwise.',
+                'old_data' => $model->toArray(),
+            ]);
+            $model->delete();
+        }
+
+        return ['deleted' => $orphans->count(), 'errors' => 0];
+    }
+
+    /**
      * NPBG = one row per ARINVDET line, joined back to its ARINV header.
      * Identity is (ARINVOICEID, SEQ) — verified as ARINVDET's real primary key
      * against the live schema (docs/GDB_ANALYSIS.md), not guessed; INVOICENO
@@ -427,7 +528,7 @@ class AccurateSyncService
      */
     protected function syncNpbg(SyncBatch $batch): array
     {
-        $counts = ['total' => 0, 'inserted' => 0, 'updated' => 0, 'skipped' => 0, 'errors' => 0];
+        $counts = ['total' => 0, 'inserted' => 0, 'updated' => 0, 'skipped' => 0, 'errors' => 0, 'deleted' => 0];
 
         if (! DB::getSchemaBuilder()->hasTable('accurate_arinvdet') || ! DB::getSchemaBuilder()->hasTable('accurate_arinv')) {
             return $counts;
@@ -448,8 +549,10 @@ class AccurateSyncService
             ->orderBy('d.ARINVOICEID')->orderBy('d.SEQ')
             ->get();
 
+        $seenKeys = [];
         foreach ($rows as $row) {
             $counts['total']++;
+            $seenKeys[] = $row->ARINVOICEID.'-'.$row->SEQ;
 
             try {
                 $outcome = $this->syncOneNpbgLine($row, $existing);
@@ -478,6 +581,10 @@ class AccurateSyncService
                 ]);
             }
         }
+
+        $orphanResult = $this->deleteOrphans($existing, $seenKeys, $batch, 'npbg', fn ($n) => "NPBG {$n->no_npbg} baris ini");
+        $counts['deleted'] = $orphanResult['deleted'];
+        $counts['errors'] += $orphanResult['errors'];
 
         return $counts;
     }
@@ -548,6 +655,85 @@ class AccurateSyncService
     }
 
     /**
+     * STPP (alat ber-serial diserahkan ke divisi/holder, docs/status-flow.md
+     * §8) had zero rows despite the workflow being real — its "issue" form
+     * requires manually picking an out_npbg, and nothing ever surfaced which
+     * NPBG lines were STPP placements, so nobody ever did. Per explicit user
+     * instruction, they're identified by NPBG's own keterangan mentioning
+     * "STPP" (189 real lines already do, e.g. "U/ DIJADIKAN STPP GUDANG..."),
+     * so every synced NPBG line matching that is turned into an StppTransaction
+     * automatically — one NPBG line, one STPP row, keyed by out_npbg_id so a
+     * repeat sync never creates a duplicate. Runs after syncNpbg() (reads its
+     * output), not against Accurate staging tables directly. Serial number,
+     * holder_id and placement_department_id aren't in NPBG's data at all —
+     * left null for a person to fill in, same as every other "don't guess
+     * what isn't there" derived field this sync produces.
+     *
+     * @return array{total:int,inserted:int,updated:int,skipped:int,errors:int}
+     */
+    protected function deriveStppFromNpbg(SyncBatch $batch): array
+    {
+        $counts = ['total' => 0, 'inserted' => 0, 'updated' => 0, 'skipped' => 0, 'errors' => 0];
+
+        $unitsByCode = Unit::pluck('id', 'code')->keyBy(fn ($id, $code) => mb_strtoupper(trim($code)));
+        $itemIdsByCode = Item::pluck('id', 'code');
+        $alreadyDerived = StppTransaction::whereNotNull('out_npbg_id')->pluck('out_npbg_id')->flip();
+
+        $rows = Npbg::where('keterangan', 'like', '%STPP%')->orderBy('id')->get();
+
+        foreach ($rows as $npbg) {
+            $counts['total']++;
+
+            try {
+                if (isset($alreadyDerived[$npbg->id])) {
+                    $counts['skipped']++;
+                    SyncLog::create([
+                        'sync_batch_id' => $batch->id, 'entity' => 'stpp', 'source_id' => (string) $npbg->id,
+                        'action' => 'SKIP', 'status' => 'SUCCESS',
+                        'message' => 'STPP sudah pernah dibuat dari baris NPBG ini.',
+                    ]);
+
+                    continue;
+                }
+
+                $unit1 = $npbg->satuan ? mb_strtoupper(trim($npbg->satuan)) : null;
+                $stpp = StppTransaction::create([
+                    'number' => $this->numbers->next('STPP', 'SDA', $npbg->tgl_npbg ?? now()),
+                    'item_id' => $npbg->kode_barang ? $itemIdsByCode->get($npbg->kode_barang) : null,
+                    'description_raw' => $npbg->deskripsi_barang ?: '-',
+                    'qty' => $npbg->kuantitas ?: 1,
+                    'unit_id' => $unit1 ? $unitsByCode->get($unit1) : null,
+                    'holder_name_raw' => $npbg->peminta,
+                    'out_npbg_id' => $npbg->id,
+                    'out_date' => $npbg->tgl_npbg ?? now(),
+                    'status' => 'ACTIVE',
+                    'out_note' => $npbg->keterangan,
+                ]);
+
+                $counts['inserted']++;
+                SyncLog::create([
+                    'sync_batch_id' => $batch->id, 'entity' => 'stpp', 'source_id' => (string) $npbg->id,
+                    'action' => 'INSERT', 'status' => 'SUCCESS',
+                    'message' => "STPP {$stpp->number} dibuat dari NPBG {$npbg->no_npbg} (keterangan menyebut STPP).",
+                    'new_data' => [
+                        'number' => $stpp->number, 'kode_barang' => $npbg->kode_barang,
+                        'deskripsi_barang' => $stpp->description_raw, 'peminta' => $stpp->holder_name_raw,
+                        'keterangan' => $stpp->out_note,
+                    ],
+                ]);
+            } catch (Throwable $e) {
+                $counts['errors']++;
+                SyncLog::create([
+                    'sync_batch_id' => $batch->id, 'entity' => 'stpp', 'source_id' => (string) $npbg->id,
+                    'action' => 'ERROR', 'status' => 'FAILED', 'message' => $e->getMessage(),
+                ]);
+            }
+        }
+
+        return $counts;
+    }
+
+    /**
      * PPB = one row per REQUISITIONDET line, joined back to its REQUISITION
      * header. Identity is (REQID, SEQ) — verified as REQUISITIONDET's real
      * primary key against the live schema (docs/GDB_ANALYSIS.md), not guessed;
@@ -560,7 +746,7 @@ class AccurateSyncService
      */
     protected function syncPpb(SyncBatch $batch): array
     {
-        $counts = ['total' => 0, 'inserted' => 0, 'updated' => 0, 'skipped' => 0, 'errors' => 0];
+        $counts = ['total' => 0, 'inserted' => 0, 'updated' => 0, 'skipped' => 0, 'errors' => 0, 'deleted' => 0];
 
         if (! DB::getSchemaBuilder()->hasTable('accurate_requisitiondet') || ! DB::getSchemaBuilder()->hasTable('accurate_requisition')) {
             return $counts;
@@ -583,8 +769,10 @@ class AccurateSyncService
             ->orderBy('d.REQID')->orderBy('d.SEQ')
             ->get();
 
+        $seenKeys = [];
         foreach ($rows as $row) {
             $counts['total']++;
+            $seenKeys[] = $row->REQID.'-'.$row->SEQ;
 
             try {
                 $outcome = $this->syncOnePpbLine($row, $existing);
@@ -613,6 +801,10 @@ class AccurateSyncService
                 ]);
             }
         }
+
+        $orphanResult = $this->deleteOrphans($existing, $seenKeys, $batch, 'ppb', fn ($p) => "PPB {$p->no_ppb} baris ini");
+        $counts['deleted'] = $orphanResult['deleted'];
+        $counts['errors'] += $orphanResult['errors'];
 
         return $counts;
     }
@@ -718,7 +910,7 @@ class AccurateSyncService
      */
     protected function syncRi(SyncBatch $batch): array
     {
-        $counts = ['total' => 0, 'inserted' => 0, 'updated' => 0, 'skipped' => 0, 'errors' => 0];
+        $counts = ['total' => 0, 'inserted' => 0, 'updated' => 0, 'skipped' => 0, 'errors' => 0, 'deleted' => 0];
 
         if (! DB::getSchemaBuilder()->hasTable('accurate_apitmdet') || ! DB::getSchemaBuilder()->hasTable('accurate_apinv')) {
             return $counts;
@@ -757,8 +949,10 @@ class AccurateSyncService
             ->orderBy('d.APINVOICEID')->orderBy('d.SEQ')
             ->get();
 
+        $seenKeys = [];
         foreach ($rows as $row) {
             $counts['total']++;
+            $seenKeys[] = $row->APINVOICEID.'-'.$row->SEQ;
 
             try {
                 $outcome = $this->syncOneRiLine($row, $existing, $poItemIdByPoKey);
@@ -787,6 +981,10 @@ class AccurateSyncService
                 ]);
             }
         }
+
+        $orphanResult = $this->deleteOrphans($existing, $seenKeys, $batch, 'ri', fn ($r) => "RI {$r->no_ri} baris ini");
+        $counts['deleted'] = $orphanResult['deleted'];
+        $counts['errors'] += $orphanResult['errors'];
 
         return $counts;
     }
@@ -1111,6 +1309,136 @@ class AccurateSyncService
             ['name' => $name],
             ['is_active' => true, 'needs_review' => true, 'source' => 'accurate']
         );
+    }
+
+    /**
+     * Pengembalian Bekas (UsedReturn) had the same problem as STPP: a real
+     * workflow with no data behind it, because nothing ever surfaced which
+     * Accurate records represented one. Per explicit user instruction, the
+     * source here is the RI mirror's own divisi "NV" documents (e.g.
+     * "RI/NV/25/IX/001") — confirmed against real data (2,534 lines across
+     * 1,017 invoices) and, per the user's own follow-up answer, taken as-is
+     * with no extra keyword filtering, even though many of them read as
+     * warehouse data-migration or fabrication events rather than literally
+     * "used item" returns — that's a business-content judgment call outside
+     * what this sync can verify, not something to silently narrow down.
+     *
+     * One Accurate AP invoice (accurate_apinvoice_id) -> one UsedReturn
+     * header, its lines -> used_return_items, keyed by accurate_apinvoice_id
+     * so a repeat sync never duplicates it (see the "used_returns" migration
+     * adding that column). Created PENDING, same as a manually-entered one —
+     * still goes through the normal "Tutup & Masukkan ke Stok" review step
+     * before anything touches stock_movements/inventory (never automatic,
+     * matching this class's own "Accurate's own stock effect is reference-
+     * only" rule, restated in syncStockOpname()'s docblock below).
+     *
+     * `condition`/`into_stock` have no equivalent in RI's data at all — per
+     * the user's explicit instruction to derive them from Accurate's own
+     * database rather than a fixed guess, they come from the item's own
+     * Kategori Induk (see KATEGORI_INDUK_MAP): "Post-Use Items" (prefix PUI)
+     * -> REUSABLE + into_stock, anything else -> USED + not into stock, left
+     * for a person to correct on review — same "don't fabricate what isn't
+     * there" policy as every other derived field in this class.
+     *
+     * @return array{total:int,inserted:int,updated:int,skipped:int,errors:int}
+     */
+    protected function uniqueUsedReturnNumber(string $noRi): string
+    {
+        if (! UsedReturn::where('number', $noRi)->exists()) {
+            return $noRi;
+        }
+
+        for ($suffix = 2; ; $suffix++) {
+            $candidate = "{$noRi} ({$suffix})";
+            if (! UsedReturn::where('number', $candidate)->exists()) {
+                return $candidate;
+            }
+        }
+    }
+
+    protected function deriveUsedReturnsFromRi(SyncBatch $batch): array
+    {
+        $counts = ['total' => 0, 'inserted' => 0, 'updated' => 0, 'skipped' => 0, 'errors' => 0];
+
+        $itemsByCode = Item::select('id', 'code', 'accurate_category_induk')->get()->keyBy('code');
+        $unitsByCode = Unit::pluck('id', 'code')->keyBy(fn ($id, $code) => mb_strtoupper(trim($code)));
+        $alreadyDerived = UsedReturn::whereNotNull('accurate_apinvoice_id')->pluck('accurate_apinvoice_id')->flip();
+        $defaultSiteId = Site::query()->orderBy('id')->value('id');
+
+        $grouped = Ri::where('divisi', 'NV')
+            ->orderBy('accurate_apinvoice_id')->orderBy('accurate_seq')
+            ->get()
+            ->groupBy('accurate_apinvoice_id');
+
+        foreach ($grouped as $apinvoiceId => $lines) {
+            $counts['total']++;
+
+            try {
+                if (isset($alreadyDerived[$apinvoiceId])) {
+                    $counts['skipped']++;
+                    SyncLog::create([
+                        'sync_batch_id' => $batch->id, 'entity' => 'used_return', 'source_id' => (string) $apinvoiceId,
+                        'action' => 'SKIP', 'status' => 'SUCCESS',
+                        'message' => 'Pengembalian Bekas sudah pernah dibuat dari RI ini.',
+                    ]);
+
+                    continue;
+                }
+
+                $first = $lines->first();
+                $ur = UsedReturn::create([
+                    // The RI's own number IS this record's number — per explicit user
+                    // instruction, a separately generated "UR/SDA/..." number isn't
+                    // wanted for rows that already have a real Accurate document number.
+                    // used_returns.number is unique, and 5 real RI/NV numbers in
+                    // production are reused across two different invoices (a data
+                    // quirk in Accurate itself) — disambiguated with a suffix so the
+                    // rare collision never silently drops a row.
+                    'number' => $this->uniqueUsedReturnNumber($first->no_ri),
+                    'accurate_apinvoice_id' => $apinvoiceId,
+                    // npbg_ref_raw is specifically "reference NPBG number" (shown in the
+                    // UI as "NPBG asal") — an RI-derived row has no NPBG; left null
+                    // rather than overloading the wrong field.
+                    'return_date' => $first->tgl_ri ?? now(),
+                    'status' => 'PENDING',
+                    'format' => 'ITEM_LINE',
+                    'site_id' => $defaultSiteId,
+                    'note' => $first->keterangan,
+                ]);
+
+                foreach ($lines as $i => $line) {
+                    $item = $line->kode_barang ? $itemsByCode->get($line->kode_barang) : null;
+                    $unit1 = $line->satuan ? mb_strtoupper(trim($line->satuan)) : null;
+                    $isPostUse = $item?->accurate_category_induk === 'Post-Use Items';
+
+                    $ur->items()->create([
+                        'item_id' => $item?->id,
+                        'description_raw' => $line->deskripsi_barang,
+                        'qty' => $line->kuantitas ?: 1,
+                        'unit_id' => $unit1 ? $unitsByCode->get($unit1) : null,
+                        'condition' => $isPostUse ? 'REUSABLE' : 'USED',
+                        'into_stock' => $isPostUse,
+                        'item_no' => $i + 1,
+                    ]);
+                }
+
+                $counts['inserted']++;
+                SyncLog::create([
+                    'sync_batch_id' => $batch->id, 'entity' => 'used_return', 'source_id' => (string) $apinvoiceId,
+                    'action' => 'INSERT', 'status' => 'SUCCESS',
+                    'message' => "Pengembalian Bekas {$ur->number} dibuat dari RI {$first->no_ri} ({$lines->count()} baris).",
+                    'new_data' => ['number' => $ur->number, 'no_ri' => $first->no_ri, 'keterangan' => $first->keterangan],
+                ]);
+            } catch (Throwable $e) {
+                $counts['errors']++;
+                SyncLog::create([
+                    'sync_batch_id' => $batch->id, 'entity' => 'used_return', 'source_id' => (string) $apinvoiceId,
+                    'action' => 'ERROR', 'status' => 'FAILED', 'message' => $e->getMessage(),
+                ]);
+            }
+        }
+
+        return $counts;
     }
 
     /**

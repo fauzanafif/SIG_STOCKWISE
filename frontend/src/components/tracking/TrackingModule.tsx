@@ -22,6 +22,14 @@ interface TrackingModuleProps<T extends { id: number }> {
   renderCreate?: (close: () => void) => ReactNode
   renderDetail?: (row: T, close: () => void) => ReactNode
   detailTitle?: (row: T) => string
+  /**
+   * Key for each rendered row — defaults to `r.id`. Override when a module
+   * lists flat per-line rows that share one header `id` (opening the same
+   * detail modal for several rows), e.g. Pengembalian Bekas's RI-style list;
+   * `id` itself still has to stay the header id for renderDetail to work.
+   */
+  rowKey?: (row: T) => string | number
+  searchPlaceholder?: string
 }
 
 export function TrackingModule<T extends { id: number }>({
@@ -38,6 +46,8 @@ export function TrackingModule<T extends { id: number }>({
   renderCreate,
   renderDetail,
   detailTitle,
+  rowKey = (r) => r.id,
+  searchPlaceholder = 'Cari…',
 }: TrackingModuleProps<T>) {
   const [search, setSearch] = useState('')
   const [status, setStatus] = useState('')
@@ -70,7 +80,7 @@ export function TrackingModule<T extends { id: number }>({
 
       <div className="flex flex-wrap items-center gap-2">
         <Input
-          placeholder="Cari…"
+          placeholder={searchPlaceholder}
           className="max-w-xs"
           value={search}
           onChange={(e) => {
@@ -101,7 +111,7 @@ export function TrackingModule<T extends { id: number }>({
       <DataTable
         columns={columns}
         rows={data?.data ?? []}
-        rowKey={(r) => r.id}
+        rowKey={rowKey}
         isLoading={isLoading}
         onRowClick={renderDetail ? (r) => setSelected(r) : undefined}
       />

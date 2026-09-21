@@ -1,6 +1,6 @@
-import { useState } from 'react'
-import { History, X } from 'lucide-react'
-import { useSyncBatchDetail, useSyncHistory, type SyncBatchRow } from '@/features/sync/api'
+import { useMemo, useState } from 'react'
+import { ChevronDown, ChevronRight, History, X } from 'lucide-react'
+import { useSyncBatchDetail, useSyncHistory, type SyncBatchRow, type SyncLogRow } from '@/features/sync/api'
 import { PageHeader } from '@/components/PageHeader'
 import { DataTable, Pagination, type Column } from '@/components/DataTable'
 import { Badge } from '@/components/ui/badge'
@@ -17,11 +17,114 @@ function statusBadge(status: SyncBatchRow['status']) {
   return <Badge variant={map[status]}>{status}</Badge>
 }
 
-const actionColor: Record<string, string> = {
-  INSERT: 'text-emerald-700',
-  UPDATE: 'text-blue-700',
-  SKIP: 'text-muted-foreground',
-  ERROR: 'text-destructive',
+/**
+ * Status per barang di satu sync — dari SyncLog.action, ditampilkan sebagai
+ * badge dengan istilah yang mudah dipahami: ADD = data baru, UPDATE = data
+ * diperbarui, DELETE = data dihapus, SKIP = tidak ada perubahan.
+ * DELETE belum pernah diproduksi oleh sync saat ini (sync hanya menambah
+ * atau memperbarui data referensi Accurate, tidak pernah menghapus data
+ * Stockwise) — badge-nya disiapkan di sini supaya siap tampil kalau suatu
+ * saat action itu benar-benar dikirim, tanpa perlu ubah UI lagi.
+ */
+const actionBadge: Record<string, { label: string; variant: 'success' | 'default' | 'neutral' | 'danger' }> = {
+  INSERT: { label: 'ADD', variant: 'success' },
+  UPDATE: { label: 'UPDATE', variant: 'default' },
+  DELETE: { label: 'DELETE', variant: 'danger' },
+  SKIP: { label: 'SKIP', variant: 'neutral' },
+  ERROR: { label: 'ERROR', variant: 'danger' },
+}
+
+interface FieldDiff {
+  field: string
+  from: string
+  to: string
+}
+
+/**
+ * Kode Barang yang ditampilkan — untuk entity 'item' source_id sudah kode
+ * barang aslinya (mis. "SSP.2898"). Tapi untuk npbg/ppb/ri, source_id itu ID
+ * gabungan internal Accurate (mis. "4116-2" = ARINVOICEID-SEQ), BUKAN kode
+ * barang — kode barang aslinya ada di new_data/old_data.kode_barang, jadi
+ * itu yang diprioritaskan. Untuk po/stock_opname (per HEADER, mencakup
+ * banyak barang sekaligus, tidak ada satu kode barang) fallback ke nomor
+ * dokumennya (new_data.number) yang setidaknya masih bermakna, baru kalau
+ * itu juga tidak ada baru pakai source_id apa adanya.
+ */
+function displayCode(log: SyncLogRow): string {
+  const data = (log.new_data ?? log.old_data) as Record<string, unknown> | null | undefined
+  const kodeBarang = data?.kode_barang
+  if (typeof kodeBarang === 'string' && kodeBarang) return kodeBarang
+  const number = data?.number
+  if (typeof number === 'string' && number) return number
+
+  return log.source_id
+}
+
+/** Hanya field yang benar-benar berubah — old_data/new_data punya bentuk beda-beda per entity (items/npbg/ppb/po/ri/stock_opname), jadi dibandingkan generik per key, bukan daftar tetap. */
+function diffFields(oldData: Record<string, unknown> | null | undefined, newData: Record<string, unknown> | null | undefined): FieldDiff[] {
+  if (!oldData || !newData) return []
+  const keys = new Set([...Object.keys(oldData), ...Object.keys(newData)])
+  const result: FieldDiff[] = []
+  for (const key of keys) {
+    const from = oldData[key]
+    const to = newData[key]
+    if (String(from ?? '') !== String(to ?? '')) {
+      result.push({ field: key, from: from == null || from === '' ? '—' : String(from), to: to == null || to === '' ? '—' : String(to) })
+    }
+  }
+  return result
+}
+
+function LogRow({ log }: { log: SyncLogRow }) {
+  const [open, setOpen] = useState(false)
+  const diffs = useMemo(() => diffFields(log.old_data, log.new_data), [log.old_data, log.new_data])
+  const hasDiff = diffs.length > 0
+
+  return (
+    <>
+      <tr className={`border-t ${hasDiff ? 'cursor-pointer hover:bg-muted/40' : ''}`} onClick={() => hasDiff && setOpen((v) => !v)}>
+        <td className="px-2 py-1.5 font-mono text-muted-foreground">{log.item_id ?? '—'}</td>
+        <td className="px-2 py-1.5 font-mono">
+          <span className="inline-flex items-center gap-1">
+            {hasDiff && (open ? <ChevronDown className="size-3" /> : <ChevronRight className="size-3" />)}
+            {displayCode(log)}
+          </span>
+        </td>
+        <td className="px-2 py-1.5">{log.item_name ?? '—'}</td>
+        <td className="px-2 py-1.5">
+          <Badge variant={actionBadge[log.action]?.variant ?? 'neutral'}>{actionBadge[log.action]?.label ?? log.action}</Badge>
+        </td>
+        <td className="px-2 py-1.5 text-muted-foreground">
+          {log.message}
+          {hasDiff && <span className="ml-2 text-primary">{diffs.length} field berubah</span>}
+        </td>
+      </tr>
+      {open && hasDiff && (
+        <tr className="border-t bg-muted/20">
+          <td colSpan={5} className="px-2 py-2">
+            <table className="w-full text-xs">
+              <thead className="text-left text-muted-foreground">
+                <tr>
+                  <th className="py-1 pr-3 font-medium">Field</th>
+                  <th className="py-1 pr-3 font-medium">Sebelum</th>
+                  <th className="py-1 font-medium">Sesudah</th>
+                </tr>
+              </thead>
+              <tbody>
+                {diffs.map((d) => (
+                  <tr key={d.field} className="border-t border-border/50">
+                    <td className="py-1 pr-3 font-mono">{d.field}</td>
+                    <td className="py-1 pr-3 text-muted-foreground">{d.from}</td>
+                    <td className="py-1 font-medium">{d.to}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </td>
+        </tr>
+      )}
+    </>
+  )
 }
 
 function DetailPanel({ id, onClose }: { id: number; onClose: () => void }) {
@@ -49,6 +152,7 @@ function DetailPanel({ id, onClose }: { id: number; onClose: () => void }) {
               <div><dt className="text-muted-foreground">Dibaca</dt><dd className="tabular-nums">{data.total_records}</dd></div>
               <div><dt className="text-muted-foreground">Insert</dt><dd className="tabular-nums">{data.inserted_records}</dd></div>
               <div><dt className="text-muted-foreground">Update</dt><dd className="tabular-nums">{data.updated_records}</dd></div>
+              <div><dt className="text-muted-foreground">Delete</dt><dd className="tabular-nums">{data.deleted_records}</dd></div>
               <div><dt className="text-muted-foreground">Error</dt><dd className="tabular-nums">{data.error_records}</dd></div>
             </dl>
             {data.error_message && (
@@ -59,21 +163,19 @@ function DetailPanel({ id, onClose }: { id: number; onClose: () => void }) {
               <table className="w-full text-xs">
                 <thead className="sticky top-0 bg-muted/80 text-left">
                   <tr>
+                    <th className="px-2 py-1.5">ID Barang</th>
                     <th className="px-2 py-1.5">Kode Barang</th>
-                    <th className="px-2 py-1.5">Aksi</th>
-                    <th className="px-2 py-1.5">Pesan</th>
+                    <th className="px-2 py-1.5">Nama Barang</th>
+                    <th className="px-2 py-1.5">Status</th>
+                    <th className="px-2 py-1.5">Keterangan</th>
                   </tr>
                 </thead>
                 <tbody>
                   {data.logs.length === 0 && (
-                    <tr><td colSpan={3} className="px-2 py-4 text-center text-muted-foreground">Tidak ada log.</td></tr>
+                    <tr><td colSpan={5} className="px-2 py-4 text-center text-muted-foreground">Tidak ada log.</td></tr>
                   )}
                   {data.logs.map((l) => (
-                    <tr key={l.id} className="border-t">
-                      <td className="px-2 py-1.5 font-mono">{l.source_id}</td>
-                      <td className={`px-2 py-1.5 font-medium ${actionColor[l.action] ?? ''}`}>{l.action}</td>
-                      <td className="px-2 py-1.5 text-muted-foreground">{l.message}</td>
-                    </tr>
+                    <LogRow key={l.id} log={l} />
                   ))}
                 </tbody>
               </table>
@@ -97,6 +199,11 @@ export function SyncHistoryPage() {
     { key: 'read', header: 'Dibaca', cell: (r) => <span className="tabular-nums">{r.total_records}</span> },
     { key: 'insert', header: 'Insert', cell: (r) => <span className="tabular-nums">{r.inserted_records}</span> },
     { key: 'update', header: 'Update', cell: (r) => <span className="tabular-nums">{r.updated_records}</span> },
+    {
+      key: 'delete',
+      header: 'Delete',
+      cell: (r) => <span className={`tabular-nums ${r.deleted_records > 0 ? 'text-destructive' : ''}`}>{r.deleted_records}</span>,
+    },
     {
       key: 'error',
       header: 'Error',

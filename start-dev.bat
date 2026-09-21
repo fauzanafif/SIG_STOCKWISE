@@ -25,6 +25,10 @@ if %errorlevel%==0 (
 )
 
 REM --- 2. Backend Laravel :8001 ------------------------------
+REM NOTE: php artisan serve is single-threaded on Windows (its multi-worker
+REM mode needs pcntl_fork(), which Windows doesn't have at all) - one long
+REM request, e.g. Sync Accurate (1-3 min), freezes the WHOLE app for every
+REM user until it finishes. Fine for solo local dev; not for anything else.
 echo [Backend]  http://127.0.0.1:8001
 start "STOCKWISE Backend" cmd /k "cd /d %~dp0backend && php artisan serve --port=8001"
 

@@ -26,7 +26,8 @@ class NpbgController extends Controller
                     ->orWhere('deskripsi_barang', 'like', "%{$s}%")
                     ->orWhere('peminta', 'like', "%{$s}%")
                     ->orWhere('divisi', 'like', "%{$s}%")
-                    ->orWhere('pelanggan', 'like', "%{$s}%");
+                    ->orWhere('pelanggan', 'like', "%{$s}%")
+                    ->orWhere('keterangan', 'like', "%{$s}%");
             });
         }
 

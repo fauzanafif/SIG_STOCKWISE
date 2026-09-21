@@ -1,7 +1,15 @@
 import { useState } from 'react'
 import { Pencil, Recycle, Trash2 } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
-import { useTrackingAction, useTrackingCreate, useTrackingDelete, useTrackingItem, useTrackingUpdate, type UsedReturnRow } from '@/features/tracking/api'
+import {
+  useTrackingAction,
+  useTrackingCreate,
+  useTrackingDelete,
+  useTrackingItem,
+  useTrackingUpdate,
+  type UsedReturnLineRow,
+  type UsedReturnRow,
+} from '@/features/tracking/api'
 import { useAuth } from '@/auth/AuthContext'
 import { apiErrorMessage } from '@/lib/api'
 import { ItemPicker } from '@/components/ItemPicker'
@@ -13,13 +21,30 @@ import { Label } from '@/components/ui/label'
 import { Select } from '@/components/ui/select'
 import { Badge } from '@/components/ui/badge'
 import { RequestStatusBadge } from '@/components/ui/request-badge'
+import { useWarehouses } from '@/features/inventory/api'
 import type { ItemLookupResult } from '@/features/inventory/api'
 
-const columns: Column<UsedReturnRow>[] = [
-  { key: 'number', header: 'Nomor', cell: (r) => <span className="font-mono text-xs">{r.number}</span> },
-  { key: 'npbg', header: 'NPBG Asal', cell: (r) => r.npbg_ref ?? '—' },
-  { key: 'items', header: 'Baris', cell: (r) => r.items_count ?? 0 },
-  { key: 'date', header: 'Tanggal', cell: (r) => (r.return_date ? new Date(r.return_date).toLocaleDateString('id-ID') : '—') },
+function fmtDate(v: string | null) {
+  return v ? new Date(v).toLocaleDateString('id-ID') : '—'
+}
+
+// Column set/order mirrors RiListPage.tsx (features/ri/api.ts's Ri) as closely
+// as the two domains allow, per explicit user instruction — RI has no
+// condition/masuk-stok/status concept (it's a read-only mirror with no
+// workflow) and UsedReturn has no vendor/harga/PO-link, so those swap in.
+const columns: Column<UsedReturnLineRow>[] = [
+  { key: 'number', header: 'No UR', cell: (r) => <span className="font-mono text-xs">{r.number}</span> },
+  { key: 'tgl', header: 'Tgl', cell: (r) => fmtDate(r.return_date) },
+  {
+    key: 'sumber',
+    header: 'Sumber',
+    cell: (r) => (r.from_accurate ? <Badge variant="default">Accurate (RI/NV)</Badge> : <Badge variant="neutral">Manual</Badge>),
+  },
+  { key: 'kode', header: 'Kode Barang', cell: (r) => <span className="font-mono text-xs">{r.kode_barang ?? '—'}</span> },
+  { key: 'barang', header: 'Deskripsi Barang', cell: (r) => r.deskripsi_barang ?? '—' },
+  { key: 'qty', header: 'Kuantitas', cell: (r) => (r.kuantitas != null ? `${r.kuantitas} ${r.satuan ?? ''}` : '—') },
+  { key: 'cond', header: 'Kondisi', cell: (r) => <Badge variant="neutral">{r.condition}</Badge> },
+  { key: 'stock', header: 'Masuk Stok', cell: (r) => (r.into_stock ? 'Ya' : 'Tidak') },
   { key: 'status', header: 'Status', cell: (r) => <RequestStatusBadge status={r.status} /> },
 ]
 
@@ -215,10 +240,13 @@ function Detail({ id, onDone }: { id: number; onDone: () => void }) {
   const qc = useQueryClient()
   const { hasPermission } = useAuth()
   const { data: ur, isLoading, refetch } = useTrackingItem<UsedReturnRow>('used-returns', id)
+  const { data: warehouses } = useWarehouses()
   const action = useTrackingAction<UsedReturnRow>('used-returns', id)
   const del = useTrackingDelete('used-returns')
   const [err, setErr] = useState<string | null>(null)
   const [editing, setEditing] = useState(false)
+  const [closing, setClosing] = useState(false)
+  const [warehouseId, setWarehouseId] = useState<number | ''>('')
 
   if (isLoading || !ur) return <p className="text-muted-foreground">Memuat…</p>
 
@@ -245,7 +273,7 @@ function Detail({ id, onDone }: { id: number; onDone: () => void }) {
           ['Nomor', <span className="font-mono text-xs">{ur.number}</span>],
           ['Status', <RequestStatusBadge status={ur.status} />],
           ['NPBG asal', ur.npbg_number ?? ur.npbg_ref],
-          ['RI bekas', ur.ri_number],
+          ['RI bekas (internal)', ur.ri_number],
           ['Tanggal', ur.return_date],
         ]}
       />
@@ -270,25 +298,56 @@ function Detail({ id, onDone }: { id: number; onDone: () => void }) {
           </Button>
         </div>
       )}
-      {ur.status === 'PENDING' && hasPermission('used_return.close') && (
-        <Button
-          size="sm"
-          disabled={action.isPending}
-          onClick={() =>
-            action.mutate(
-              { action: 'close', body: {} },
-              {
-                onSuccess: () => {
-                  qc.invalidateQueries({ queryKey: ['used-returns'] })
-                  onDone()
-                },
-                onError: (e) => setErr(apiErrorMessage(e)),
-              },
-            )
-          }
-        >
-          Tutup (bekas sudah masuk RI)
+      {ur.status === 'PENDING' && hasPermission('used_return.close') && !closing && (
+        <Button size="sm" onClick={() => setClosing(true)}>
+          Tutup &amp; Masukkan ke Stok
         </Button>
+      )}
+      {ur.status === 'PENDING' && hasPermission('used_return.close') && closing && (
+        <div className="space-y-2 rounded-md border bg-muted/30 p-3">
+          <p className="text-sm text-muted-foreground">
+            Menutup pengembalian ini akan langsung membuat &amp; mengonfirmasi RI dari baris barang di atas — barang
+            dengan kondisi Reusable/Used dan &ldquo;masuk stok&rdquo; akan menambah stok gudang yang dipilih.
+          </p>
+          <div className="max-w-xs">
+            <Label>Gudang tujuan</Label>
+            <select
+              className="mt-1 h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
+              value={warehouseId}
+              onChange={(e) => setWarehouseId(e.target.value ? Number(e.target.value) : '')}
+            >
+              <option value="">— pilih gudang —</option>
+              {warehouses?.map((w) => (
+                <option key={w.id} value={w.id}>
+                  {w.code} — {w.name}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="flex gap-2 pt-1">
+            <Button variant="outline" size="sm" onClick={() => setClosing(false)}>
+              Batal
+            </Button>
+            <Button
+              size="sm"
+              disabled={action.isPending || !warehouseId}
+              onClick={() =>
+                action.mutate(
+                  { action: 'close', body: { warehouse_id: warehouseId } },
+                  {
+                    onSuccess: () => {
+                      qc.invalidateQueries({ queryKey: ['used-returns'] })
+                      onDone()
+                    },
+                    onError: (e) => setErr(apiErrorMessage(e)),
+                  },
+                )
+              }
+            >
+              {action.isPending ? 'Memproses…' : 'Konfirmasi Tutup'}
+            </Button>
+          </div>
+        </div>
       )}
       {err && <p className="text-sm text-destructive">{err}</p>}
     </div>
@@ -297,8 +356,11 @@ function Detail({ id, onDone }: { id: number; onDone: () => void }) {
 
 export function UsedReturnPage() {
   const { hasPermission } = useAuth()
+  const [dateFrom, setDateFrom] = useState('')
+  const [dateTo, setDateTo] = useState('')
+
   return (
-    <TrackingModule<UsedReturnRow>
+    <TrackingModule<UsedReturnLineRow>
       base="used-returns"
       title="Pengembalian Bekas"
       subtitle="Sisa / bekas / rusak dari pemakaian yang dikembalikan"
@@ -310,6 +372,21 @@ export function UsedReturnPage() {
       renderCreate={(close) => <CreateForm onDone={close} />}
       renderDetail={(row, close) => <Detail id={row.id} onDone={close} />}
       detailTitle={(row) => row.number}
+      rowKey={(row) => row.line_id}
+      searchPlaceholder="Cari no UR, kode barang, deskripsi…"
+      extraFilterParams={{ date_from: dateFrom || undefined, date_to: dateTo || undefined }}
+      extraFilter={
+        <>
+          <div className="space-y-1">
+            <label className="text-xs text-muted-foreground">Dari tanggal</label>
+            <Input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} />
+          </div>
+          <div className="space-y-1">
+            <label className="text-xs text-muted-foreground">Sampai tanggal</label>
+            <Input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} />
+          </div>
+        </>
+      }
     />
   )
 }

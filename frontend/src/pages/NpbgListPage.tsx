@@ -49,6 +49,16 @@ const columns: Column<Npbg>[] = [
     header: 'Kuantitas',
     cell: (r) => <span className="whitespace-nowrap">{r.kuantitas != null ? `${r.kuantitas} ${r.satuan ?? ''}` : '—'}</span>,
   },
+  {
+    key: 'keterangan',
+    header: 'Keterangan',
+    className: 'max-w-[220px]',
+    cell: (r) => (
+      <span className="block truncate" title={r.keterangan ?? undefined}>
+        {r.keterangan ?? '—'}
+      </span>
+    ),
+  },
   { key: 'peminta', header: 'Peminta', cell: (r) => <span className="whitespace-nowrap">{r.peminta ?? '—'}</span> },
   { key: 'divisi', header: 'Divisi', cell: (r) => <span className="whitespace-nowrap">{r.divisi ?? '—'}</span> },
   {
@@ -113,7 +123,9 @@ export function NpbgListPage() {
       {result && (
         <div className="rounded-md border bg-card p-3 text-sm">
           Sync {result.status === 'SUCCESS' ? 'selesai' : result.status.toLowerCase()} — Total {result.total_records},
-          Baru {result.inserted_records}, Diperbarui {result.updated_records}, Dilewati {result.skipped_records},
+          Baru {result.inserted_records}, Diperbarui {result.updated_records},
+          Dihapus <span className={result.deleted_records > 0 ? 'text-destructive' : ''}>{result.deleted_records}</span>,
+          Dilewati {result.skipped_records},
           Error <span className={result.error_records > 0 ? 'text-destructive' : ''}>{result.error_records}</span>
           {result.error_message && <p className="mt-1 text-destructive">{result.error_message}</p>}
         </div>
@@ -121,7 +133,7 @@ export function NpbgListPage() {
 
       <div className="flex flex-wrap items-end gap-2">
         <Input
-          placeholder="Cari no NPBG, kode barang, deskripsi, peminta, divisi, pelanggan…"
+          placeholder="Cari no NPBG, kode barang, deskripsi, keterangan, peminta, divisi, pelanggan…"
           className="max-w-sm"
           value={search}
           onChange={(e) => { setSearch(e.target.value); setPage(1) }}

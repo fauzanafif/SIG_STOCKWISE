@@ -1,7 +1,7 @@
-import { RefreshCw, CloudCog, CheckCircle2, XCircle, AlertTriangle } from 'lucide-react'
+import { Loader2, RefreshCw, CloudCog, CheckCircle2, XCircle, AlertTriangle } from 'lucide-react'
 import { useAuth } from '@/auth/AuthContext'
 import { apiErrorMessage } from '@/lib/api'
-import { useSyncStatus, useTriggerSync } from '@/features/sync/api'
+import { useSyncStatus, useTriggerSync, SYNC_STEP_LABELS } from '@/features/sync/api'
 import { PageHeader } from '@/components/PageHeader'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
@@ -70,6 +70,13 @@ export function SyncPage() {
             {status && <span className="font-mono text-xs text-muted-foreground">{status.sync_code}</span>}
           </div>
 
+          {status?.status === 'RUNNING' && (
+            <div className="flex items-center gap-2 rounded-md bg-muted/50 p-3 text-sm">
+              <Loader2 className="size-4 shrink-0 animate-spin text-primary" />
+              {status.current_step ? SYNC_STEP_LABELS[status.current_step] ?? status.current_step : 'Memulai…'}
+            </div>
+          )}
+
           {isLoading && <p className="text-sm text-muted-foreground">Memuat…</p>}
 
           {!isLoading && !status && (
@@ -80,10 +87,11 @@ export function SyncPage() {
 
           {status && (
             <>
-              <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
                 <StatTile label="Total Dibaca" value={status.total_records} />
                 <StatTile label="Baris Baru" value={status.inserted_records} />
                 <StatTile label="Diperbarui" value={status.updated_records} />
+                <StatTile label="Dihapus" value={status.deleted_records} />
                 <StatTile label="Dilewati" value={status.skipped_records} />
               </div>
               <dl className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-3">

@@ -29,7 +29,7 @@ class StppController extends Controller
 
     public function show(StppTransaction $stpp): JsonResponse
     {
-        return response()->json(['data' => $this->row($stpp->load('item:id,code', 'unit:id,code', 'outNpbg:id,number', 'returnRi:id,number'))]);
+        return response()->json(['data' => $this->row($stpp->load('item:id,code', 'unit:id,code', 'outNpbg:id,no_npbg', 'returnRi:id,number'))]);
     }
 
     public function store(Request $request): JsonResponse
@@ -44,7 +44,7 @@ class StppController extends Controller
             'holder_name_raw' => ['nullable', 'string', 'max:150'],
             'placement_department_id' => ['nullable', 'integer', 'exists:departments,id'],
             'placement_raw' => ['nullable', 'string', 'max:80'],
-            'out_npbg_id' => ['nullable', 'integer', 'exists:goods_issues,id'],
+            'out_npbg_id' => ['nullable', 'integer', 'exists:npbg,id'],
             'out_date' => ['nullable', 'date'],
             'out_note' => ['nullable', 'string', 'max:255'],
         ]);
@@ -94,7 +94,7 @@ class StppController extends Controller
             'holder_name_raw' => ['nullable', 'string', 'max:150'],
             'placement_department_id' => ['nullable', 'integer', 'exists:departments,id'],
             'placement_raw' => ['nullable', 'string', 'max:80'],
-            'out_npbg_id' => ['nullable', 'integer', 'exists:goods_issues,id'],
+            'out_npbg_id' => ['nullable', 'integer', 'exists:npbg,id'],
             'out_date' => ['nullable', 'date'],
         ]);
 
@@ -111,7 +111,7 @@ class StppController extends Controller
             'unit' => $s->relationLoaded('unit') ? $s->unit?->code : null,
             'holder' => $s->holder_name_raw, 'placement' => $s->placement_raw,
             'out_date' => $s->out_date?->toDateString(), 'return_date' => $s->return_date?->toDateString(),
-            'out_npbg' => $s->relationLoaded('outNpbg') ? $s->outNpbg?->number : null,
+            'out_npbg' => $s->relationLoaded('outNpbg') ? $s->outNpbg?->no_npbg : null,
             'return_ri' => $s->relationLoaded('returnRi') ? $s->returnRi?->number : null,
             'out_note' => $s->out_note, 'return_note' => $s->return_note, 'created_at' => $s->created_at,
         ];

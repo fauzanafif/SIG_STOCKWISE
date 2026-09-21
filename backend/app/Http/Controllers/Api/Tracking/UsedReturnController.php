@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api\Tracking;
 
 use App\Http\Controllers\Controller;
 use App\Models\UsedReturn;
+use App\Models\UsedReturnItem;
 use App\Services\Tracking\UsedReturnService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -12,17 +13,44 @@ class UsedReturnController extends Controller
 {
     public function __construct(private readonly UsedReturnService $service) {}
 
+    /**
+     * Listed flat, one row per item line — same format as RI's own list
+     * (App\Http\Controllers\Api\RiController::index()), per explicit user
+     * instruction. Most Pengembalian Bekas rows are themselves derived
+     * straight from RI (divisi NV, see AccurateSyncService::
+     * deriveUsedReturnsFromRi()), so this mirrors that shape rather than
+     * the header+item-count summary used elsewhere in this app.
+     */
     public function index(Request $request): JsonResponse
     {
-        $query = UsedReturn::query()->withCount('items')->latest();
-        $request->whenFilled('status', fn ($v) => $query->where('status', strtoupper((string) $v)));
+        $query = UsedReturnItem::query()
+            ->join('used_returns', 'used_returns.id', '=', 'used_return_items.used_return_id')
+            ->select(
+                'used_return_items.*',
+                'used_returns.number as ur_number',
+                'used_returns.status as ur_status',
+                'used_returns.return_date as ur_return_date',
+                'used_returns.accurate_apinvoice_id as ur_accurate_apinvoice_id',
+            )
+            ->with(['item:id,code,description', 'unit:id,code']);
+
         if ($s = $request->string('search')->trim()->value()) {
-            $query->where('number', 'like', "%{$s}%")->orWhere('npbg_ref_raw', 'like', "%{$s}%");
+            $query->where(function ($q) use ($s) {
+                $q->where('used_returns.number', 'like', "%{$s}%")
+                    ->orWhereHas('item', fn ($q2) => $q2->where('code', 'like', "%{$s}%")->orWhere('description', 'like', "%{$s}%"))
+                    ->orWhere('used_return_items.description_raw', 'like', "%{$s}%");
+            });
         }
-        $page = $query->paginate(min((int) $request->integer('per_page', 20), 100))->withQueryString();
+        $request->whenFilled('status', fn ($v) => $query->where('used_returns.status', strtoupper((string) $v)));
+        $request->whenFilled('date_from', fn ($v) => $query->whereDate('used_returns.return_date', '>=', $v));
+        $request->whenFilled('date_to', fn ($v) => $query->whereDate('used_returns.return_date', '<=', $v));
+
+        $query->orderByDesc('used_returns.return_date')->orderByDesc('used_return_items.id');
+
+        $page = $query->paginate(min((int) $request->integer('per_page', 20), 100));
 
         return response()->json([
-            'data' => collect($page->items())->map(fn (UsedReturn $u) => $this->row($u)),
+            'data' => collect($page->items())->map(fn (UsedReturnItem $li) => $this->lineRow($li)),
             'meta' => ['page' => $page->currentPage(), 'per_page' => $page->perPage(), 'total' => $page->total(), 'last_page' => $page->lastPage()],
         ]);
     }
@@ -33,6 +61,11 @@ class UsedReturnController extends Controller
 
         return response()->json(['data' => $this->row($usedReturn) + [
             'npbg_number' => $usedReturn->npbg?->number,
+            // "RI bekas (internal)" — the Receiving created once this is actually
+            // closed (see UsedReturnService::close()). No separate "RI Accurate
+            // asal" field: for a derived row, `number` above already IS the source
+            // RI's own number (see AccurateSyncService::deriveUsedReturnsFromRi()),
+            // so a second field showing the same value would be redundant.
             'ri_number' => $usedReturn->ri?->number,
             'note' => $usedReturn->note,
             'items' => $usedReturn->items->map(fn ($l) => [
@@ -95,10 +128,10 @@ class UsedReturnController extends Controller
     public function close(Request $request, UsedReturn $usedReturn): JsonResponse
     {
         $data = $request->validate([
-            'ri_id' => ['nullable', 'integer', 'exists:receivings,id'],
+            'warehouse_id' => ['required', 'integer', 'exists:warehouses,id'],
             'return_date' => ['nullable', 'date'],
         ]);
-        $this->service->close($usedReturn, $data);
+        $this->service->close($request->user(), $usedReturn, $data);
 
         return $this->show($usedReturn->fresh());
     }
@@ -109,6 +142,26 @@ class UsedReturnController extends Controller
             'id' => $u->id, 'number' => $u->number, 'status' => $u->status, 'format' => $u->format,
             'npbg_ref' => $u->npbg_ref_raw, 'return_date' => $u->return_date?->toDateString(),
             'items_count' => $u->items_count, 'created_at' => $u->created_at,
+            'from_accurate' => $u->accurate_apinvoice_id !== null,
+        ];
+    }
+
+    /** One flat list row per used_return_item — id is the HEADER id (opens the detail/close modal), line_id is this row's own unique key. */
+    private function lineRow(UsedReturnItem $li): array
+    {
+        return [
+            'id' => $li->used_return_id,
+            'line_id' => $li->id,
+            'number' => $li->ur_number,
+            'return_date' => $li->ur_return_date,
+            'status' => $li->ur_status,
+            'kode_barang' => $li->item?->code,
+            'deskripsi_barang' => $li->description_raw ?: $li->item?->description,
+            'kuantitas' => $li->qty,
+            'satuan' => $li->unit?->code,
+            'condition' => $li->condition,
+            'into_stock' => $li->into_stock,
+            'from_accurate' => $li->ur_accurate_apinvoice_id !== null,
         ];
     }
 }
