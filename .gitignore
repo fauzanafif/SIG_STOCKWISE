@@ -25,6 +25,13 @@ Thumbs.db
 !.vscode/extensions.json
 *.swp
 
+# Dev server / tooling logs
+*.log
+
+# Python bytecode cache
+__pycache__/
+*.pyc
+
 # Root-level tooling
 /node_modules/
 /vendor/
