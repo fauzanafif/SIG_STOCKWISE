@@ -1,6 +1,8 @@
 import { createBrowserRouter, Navigate } from 'react-router-dom'
 import { RequireAuth, RequirePermission } from '@/auth/guards'
 import { AppLayout } from '@/components/AppLayout'
+import { FeatureDisabledNotice } from '@/components/FeatureDisabledNotice'
+import { MATERIAL_REQUEST_ENABLED } from '@/config/features'
 import { DashboardPage } from '@/pages/DashboardPage'
 import { GoodsIssueDetailPage } from '@/pages/GoodsIssueDetailPage'
 import { GoodsIssueListPage } from '@/pages/GoodsIssueListPage'
@@ -51,11 +53,17 @@ export const router = createBrowserRouter([
           { path: '/', element: <DashboardPage /> },
           {
             element: <RequirePermission permission={['request.view', 'request.view_own']} />,
-            children: [
-              { path: '/requests', element: <RequestListPage /> },
-              { path: '/requests/new', element: <RequestCreatePage /> },
-              { path: '/requests/:id', element: <RequestDetailPage /> },
-            ],
+            children: MATERIAL_REQUEST_ENABLED
+              ? [
+                  { path: '/requests', element: <RequestListPage /> },
+                  { path: '/requests/new', element: <RequestCreatePage /> },
+                  { path: '/requests/:id', element: <RequestDetailPage /> },
+                ]
+              : [
+                  { path: '/requests', element: <FeatureDisabledNotice feature="Request Barang" /> },
+                  { path: '/requests/new', element: <FeatureDisabledNotice feature="Request Barang" /> },
+                  { path: '/requests/:id', element: <FeatureDisabledNotice feature="Request Barang" /> },
+                ],
           },
           {
             element: <RequirePermission permission={['goods_issue.view', 'goods_issue.view_own']} />,

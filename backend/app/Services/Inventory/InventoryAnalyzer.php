@@ -38,7 +38,13 @@ class InventoryAnalyzer
             ->leftJoinSub($invAgg, 'inv', 'inv.item_id', '=', 'items.id')
             ->select([
                 'items.id',
-                'items.lead_time_days',
+                // Same Lead Time the Safety Stock formula itself used (ss.lead_time_days),
+                // when an effective row exists — items.lead_time_days and
+                // item_safety_stocks.lead_time_days are separately editable and can
+                // drift (confirmed: 202/933 items had different values), which would
+                // otherwise make Deficit/Priority Score use a different Lead Time than
+                // the Safety Stock they're computed against for the same item.
+                DB::raw('COALESCE(ss.lead_time_days, items.lead_time_days) as lead_time_days'),
                 'units.code as uom',
                 DB::raw('COALESCE(ss.safety_stock, 0) as safety_stock'),
                 DB::raw('COALESCE(inv.a, 0) as actual'),

@@ -2,29 +2,29 @@
 
 namespace Tests\Feature\Accurate;
 
+use App\Models\Inventory;
 use App\Models\Item;
+use App\Models\StockMovement;
 use App\Models\SyncBatch;
 use App\Models\Unit;
+use App\Models\Warehouse;
 use Database\Seeders\RbacSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Process;
 use Illuminate\Support\Facades\Schema;
 use Tests\TestCase;
 
 /**
- * Tests the Laravel-side of the Accurate sync (upsert logic, idempotency,
- * validation, error handling, permissions, sync_logs) against a fixture
- * `accurate_item` table created in the test's own SQLite connection, with
- * Process::fake() standing in for the Python staging step.
+ * Tests POST /api/sync/accurate — the manual/admin "re-run" trigger, which
+ * reprocesses whatever is CURRENTLY in the accurate_* staging tables
+ * (AccurateSyncService::run() -> finishFromStaging()). Exercises the same
+ * upsert logic, idempotency, validation, error handling, permissions and
+ * sync_logs the Agent's push-triggered complete() also drives — see
+ * tests/Feature/Agent/AccurateIngestTest.php for the push/ingest side
+ * (staging table creation from a payload, ability auth, fail()).
  *
- * The real Firebird connectivity and staging refresh (sync-service, live
- * against GUDANGSIG2025.GDB) was validated separately by hand — see
- * docs/sync-architecture.md — not re-proven here, since the test suite runs
- * on SQLite in-memory and has no access to the real GDB or a MySQL server.
- * Per the "don't pretend sync succeeded if the environment can't reach
- * Accurate" principle, this file is explicit about faking only the Firebird
- * step, never the upsert/logging logic itself.
+ * Fixture `accurate_item` table created in the test's own SQLite connection,
+ * same column names/shapes as the real Accurate ITEM table.
  */
 class AccurateSyncTest extends TestCase
 {
@@ -51,8 +51,6 @@ class AccurateSyncTest extends TestCase
                 $table->string('PARENTITEM')->nullable();
             });
         }
-
-        Process::fake(); // staging refresh step always "succeeds" with no output
     }
 
     protected function seedAccurateItem(array $row): void
@@ -96,6 +94,55 @@ class AccurateSyncTest extends TestCase
         $log = DB::table('sync_logs')->where('source_id', 'NEW.0001')->first();
         $this->assertSame('INSERT', $log->action);
         $this->assertSame('SUCCESS', $log->status);
+    }
+
+    public function test_item_with_no_inventory_row_gets_opening_balance_seeded_from_accurate_qty(): void
+    {
+        // Per explicit user instruction: don't wait for a physical Stock
+        // Opname to resolve stock_known=false — an item Accurate already
+        // shows real stock for must not sit "unknown" (and be treated as 0,
+        // a false TIDAK_AMAN alert) indefinitely.
+        Unit::factory()->create(['code' => 'PCS']);
+        Warehouse::factory()->create();
+        $this->seedAccurateItem(['ITEMNO' => 'AUT.0001', 'ITEMDESCRIPTION' => 'BOLT M10', 'UNIT1' => 'PCS', 'QUANTITY' => 42]);
+
+        $this->actingAsRole('admin_gudang');
+        $this->postJson('/api/sync/accurate')->assertCreated();
+
+        $item = Item::where('code', 'AUT.0001')->firstOrFail();
+        $inv = Inventory::where('item_id', $item->id)->firstOrFail();
+        $this->assertEquals(42, $inv->actual_qty);
+        $this->assertEquals(0, $inv->reserved_qty);
+        $this->assertTrue((bool) $inv->stock_known);
+        $this->assertSame('OPENING_BALANCE', StockMovement::where('item_id', $item->id)->value('movement_type'));
+    }
+
+    public function test_item_already_tracked_by_stockwise_is_never_overwritten_by_a_later_accurate_qty(): void
+    {
+        // Once Stockwise's own ledger exists for an item (any real
+        // operation — reserve/pickup/opname/etc.), Accurate's qty stays
+        // reference-only from then on, same as every other Accurate sync in
+        // this class — the opening-balance seed is a ONE-TIME backfill, not
+        // an ongoing overwrite that would erase real reservations later.
+        Unit::factory()->create(['code' => 'PCS']);
+        $warehouse = Warehouse::factory()->create();
+        $this->seedAccurateItem(['ITEMNO' => 'AUT.0002', 'ITEMDESCRIPTION' => 'NUT M10', 'UNIT1' => 'PCS', 'QUANTITY' => 10]);
+
+        $this->actingAsRole('admin_gudang');
+        $this->postJson('/api/sync/accurate')->assertCreated();
+        $item = Item::where('code', 'AUT.0002')->firstOrFail();
+
+        // Stockwise's own operation moves actual stock to 5 (e.g. a pickup) —
+        // this must survive the next Accurate sync untouched.
+        app(\App\Services\Inventory\StockLedgerService::class)->record([
+            'type' => 'STOCK_ADJUSTMENT', 'item_id' => $item->id, 'warehouse_id' => $warehouse->id, 'absolute' => 5,
+        ]);
+
+        DB::table('accurate_item')->where('ITEMNO', 'AUT.0002')->update(['QUANTITY' => 999]);
+        $this->postJson('/api/sync/accurate')->assertCreated();
+
+        $this->assertEquals(5, Inventory::where('item_id', $item->id)->value('actual_qty'));
+        $this->assertEquals(999, Item::where('code', 'AUT.0002')->value('accurate_qty_onhand'));
     }
 
     public function test_second_sync_updates_existing_item_without_duplicating(): void
@@ -236,16 +283,32 @@ class AccurateSyncTest extends TestCase
             ->assertJsonPath('data.skipped_records', 1);
     }
 
-    public function test_unreachable_accurate_database_fails_the_batch_without_crashing(): void
+    public function test_rerun_with_no_staged_rows_succeeds_with_zero_counts(): void
     {
-        Process::fake(fn () => Process::result(errorOutput: 'Unable to complete network request to host.', exitCode: 1));
+        // run() never talks to Firebird/the Agent — it only reprocesses
+        // whatever is already staged. An empty accurate_item table (e.g.
+        // nothing has ever been pushed yet) is a legitimate, non-error state.
+        $this->actingAsRole('admin_gudang');
+        $res = $this->postJson('/api/sync/accurate')->assertCreated();
+
+        $res->assertJsonPath('data.status', 'SUCCESS')
+            ->assertJsonPath('data.total_records', 0);
+    }
+
+    public function test_second_manual_rerun_returns_the_in_progress_batch_instead_of_starting_another(): void
+    {
+        // Sync lock (AccurateSyncService::startBatch()): a RUNNING batch from
+        // one call must be reused, not duplicated, by a concurrent call.
+        $batch = SyncBatch::create([
+            'sync_code' => 'SYNC-TEST-LOCK', 'source' => 'accurate',
+            'started_at' => now(), 'status' => 'RUNNING', 'current_step' => 'items',
+        ]);
 
         $this->actingAsRole('admin_gudang');
-        $res = $this->postJson('/api/sync/accurate');
+        $res = $this->postJson('/api/sync/accurate')->assertCreated();
 
-        $res->assertStatus(502);
-        $res->assertJsonPath('data.status', 'FAILED');
-        $this->assertStringContainsString('Unable to connect to Accurate database', $res->json('data.error_message'));
+        $res->assertJsonPath('data.id', $batch->id)
+            ->assertJsonPath('data.status', 'RUNNING');
     }
 
     public function test_sync_history_and_status_endpoints(): void

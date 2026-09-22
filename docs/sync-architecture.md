@@ -3,20 +3,26 @@
 ## Layers
 
 ```
-ACCURATE 5 DELUXE (Firebird 2.5, GUDANGSIG2025.GDB)
-        │  read-only, TCP 3050
+ACCURATE 5 DELUXE (Firebird 2.5, D:\GUDANGSIG2025.GDB, office server)
+        │  automatic .GBK backup (never read live — see "Why .GBK, not a live connection" below)
         ▼
-sync-service/ (Python) — holds the real Firebird credentials, its own .env,
-never runs on the same box as production Hostinger deployment target.
-        │  mirrors 20 whitelisted tables into MySQL, full drop+reload each run
+sync-service/agent/ (Python, runs AT THE OFFICE, on its own 04:00/10:30/20:30
+schedule — never co-located with Laravel) — scans D:\ for *.GBK, waits for a
+backup's file size to stop changing, restores the newest stable one with
+`gbak -r` into a local staging Firebird DB (D:\01.STOCKWISE\Staging), reads
+the 20 whitelisted tables from THAT staging DB via `firebird/introspect.py`.
+        │  POST /api/agent/sync/sessions/{id}/tables/{table} — chunked, HTTPS,
+        │  Sanctum `agent:sync` token — the Agent never touches MySQL directly.
         ▼
-accurate_* staging tables (MySQL `stockwise` DB) — raw, Accurate's own column
-names/types, read-only from Stockwise's own business logic's point of view.
-        │  matched/transformed by Laravel (PHP), triggered via POST /api/sync/accurate
+App\Services\Accurate\StagingTableWriter (Laravel) — (re)creates
+accurate_* staging tables (MySQL `stockwise` DB) from the pushed payload,
+whitelist-checked table/column names and types (config('accurate.*')).
+        │  POST .../complete triggers AccurateSyncService::finishFromStaging()
         ▼
 items (+ 3 reference columns: accurate_synced_at, accurate_qty_onhand,
 accurate_qty_onorder) — Stockwise's own existing table, untouched schema
-otherwise. sync_batches + sync_logs record every run.
+otherwise. sync_batches + sync_logs record every run (Agent-pushed or the
+manual "Sync Accurate" re-run via POST /api/sync/accurate).
         │
         ▼
 Laravel API → React frontend (Sync Accurate / Sync History / Dashboard widget)
@@ -27,18 +33,33 @@ Laravel API → React frontend (Sync Accurate / Sync History / Dashboard widget)
 Checked first, not assumed: this PHP 8.4.23 (ZTS, VC17, x64) install has no `pdo_firebird` or
 `interbase` extension, and a recovered `php_pdo_firebird.dll` found on this machine turned out to be
 built for a different PHP ABI (loads its dependencies fine, but PHP can't find the expected module
-entry point — confirmed via direct test, not assumed). Rather than compile a custom extension (a
-real, distinct, avoidable amount of risk), Laravel orchestrates the already-working Python
-sync-service as a subprocess. This also matches the master prompt's own architecture diagram, which
-draws "Accurate Connector / Sync Service" as a layer distinct from and prior to "Laravel API" — so
-this isn't a workaround, it's the specified shape.
+entry point — confirmed via direct test, not assumed). Rather than compile a custom extension (a real,
+distinct, avoidable amount of risk), Firebird reading stays entirely in the already-working Python
+`sync-service/` project.
 
-**Windows-specific gotcha (found, not theoretical):** the shell that starts `php artisan serve` can
-hand down a `PATH` the Firebird client library can't use (observed with Git Bash/MSYS — raw TCP
-connectivity from a Laravel-spawned process worked, but `fbclient.dll`'s own dependency resolution
-failed until an explicit clean `PATH` including its directory was passed to the child process). Fixed
-in `AccurateSyncService::refreshStaging()` via `Process::env([...])`; `ACCURATE_FIREBIRD_CLIENT_DIR`
-in `.env` controls it.
+## Why the Agent pushes over HTTPS instead of Laravel pulling
+
+Earlier versions of this had Laravel shell out to the Python script as a subprocess on the same
+machine. That only works when Laravel and the Firebird reader are co-located — it cannot survive
+Laravel moving to Hostinger while Accurate stays at the office (brief §6: the office Agent may only
+ever reach Laravel over its API; Laravel must never reach into the office LAN, and the Agent must never
+connect to MySQL directly). The Agent now runs as its own independent, scheduled process
+(`sync-service/agent/`) and pushes; Laravel only ever receives.
+
+## Why the source is a `.GBK` backup, not a live connection
+
+Reading the live production `D:\GUDANGSIG2025.GDB` while Accurate 5 has it open is exactly the kind of
+interference the brief prohibits (§43 production safety). The Agent only ever reads a `.GBK` backup
+Accurate itself already wrote to `D:\`, after confirming (two scans, file size unchanged) that Accurate
+has finished writing it — see `sync-service/agent/scanner.py`. It restores that backup into its own
+staging Firebird database and reads from there; the production file and the live Firebird service are
+never touched.
+
+**Windows-specific gotcha (found, not theoretical):** the shell that starts a Python process can hand
+down a `PATH` the Firebird client library can't use (observed with Git Bash/MSYS — raw TCP connectivity
+worked, but `fbclient.dll`'s own dependency resolution failed until an explicit clean `PATH` including
+its directory was passed to the child process). `sync-service/.env`'s `FIREBIRD_CLIENT_LIB` /
+`GBAK_BIN` point at the known-good local install (`D:\FirebirdLocal\Firebird_25\bin`).
 
 ## Why the stock number is a reference column, not a ledger entry
 

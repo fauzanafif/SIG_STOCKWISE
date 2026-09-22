@@ -2,6 +2,7 @@
 
 namespace App\Services\Accurate;
 
+use App\Models\Inventory;
 use App\Models\Item;
 use App\Models\Npbg;
 use App\Models\Ppb;
@@ -17,24 +18,29 @@ use App\Models\SyncLog;
 use App\Models\Unit;
 use App\Models\UsedReturn;
 use App\Models\Vendor;
+use App\Services\Notifications\NotificationDispatcher;
 use App\Models\Warehouse;
 use App\Services\DocumentNumberService;
+use App\Services\Inventory\StockLedgerService;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Process;
 use Throwable;
 
 /**
- * Orchestrates one Accurate -> Stockwise sync run.
+ * Orchestrates the Stockwise side of one Accurate -> Stockwise sync run.
  *
- * Laravel never talks to Firebird directly (see docs/sync-architecture.md):
- * step 1 shells out to the sync-service/ Python project, which holds the real
- * Firebird credentials in its own .env and refreshes the accurate_* MySQL
- * staging tables (read-only against Accurate, full mirror). Step 2 is pure
- * MySQL-to-MySQL work done here in PHP: match accurate_item.ITEMNO against
- * items.code and upsert, logging every row's outcome to sync_logs. NPBG
- * (accurate_arinv + accurate_arinvdet -> npbg), PPB (accurate_requisition +
- * accurate_requisitiondet -> ppb) and RI (accurate_apinv + accurate_apitmdet
- * -> ri) all follow the same flat one-row-per-line pattern.
+ * Laravel never talks to Firebird directly and never shells out to a local
+ * process either (see docs/sync-architecture.md): the sync-service/ Python
+ * Agent — running independently at the office, on its own 04:00/10:30/20:30
+ * schedule — restores the newest stable .GBK backup to a local staging
+ * Firebird DB and PUSHES the mirrored rows here over HTTPS
+ * (App\Http\Controllers\Api\Agent\AccurateIngestController writes them into
+ * the accurate_* MySQL tables via StagingTableWriter). This class only ever
+ * starts with those accurate_* tables already populated: match
+ * accurate_item.ITEMNO against items.code and upsert, logging every row's
+ * outcome to sync_logs. NPBG (accurate_arinv + accurate_arinvdet -> npbg),
+ * PPB (accurate_requisition + accurate_requisitiondet -> ppb) and RI
+ * (accurate_apinv + accurate_apitmdet -> ri) all follow the same flat
+ * one-row-per-line pattern.
  *
  * Items: Accurate's stock figure is a company-wide total (no per-warehouse
  * breakdown — see docs/ACCURATE_MAPPING.md §Warehouses), so it is written to
@@ -80,9 +86,65 @@ class AccurateSyncService
         'AST' => 'Assets',
     ];
 
-    public function __construct(private readonly DocumentNumberService $numbers) {}
+    public function __construct(
+        private readonly DocumentNumberService $numbers,
+        private readonly StockLedgerService $ledger,
+    ) {}
 
+    /**
+     * Manual/admin re-run (POST /api/sync/accurate, the "Sync Accurate"
+     * button) — reprocesses whatever is CURRENTLY in the accurate_* tables.
+     * It does not talk to Firebird or the Agent at all: fresh data only ever
+     * arrives via the Agent's own scheduled push (see startForAgent()). This
+     * is still useful on its own — e.g. re-running the mapping/business
+     * logic after a Stockwise-side bug fix, without waiting for the Agent's
+     * next tick.
+     */
     public function run(?int $userId = null): SyncBatch
+    {
+        $batch = $this->startBatch($userId, 'items');
+
+        return $batch->wasRecentlyCreated ? $this->finishFromStaging($batch) : $batch;
+    }
+
+    /**
+     * Called by AccurateIngestController::startSession() when the Agent
+     * begins pushing a fresh staging refresh. Returns an already-RUNNING
+     * batch instead of creating a new one if a sync (manual or another
+     * Agent tick) is already in progress — same sync lock as run().
+     */
+    public function startForAgent(): SyncBatch
+    {
+        return $this->startBatch(null, 'staging');
+    }
+
+    /**
+     * The Agent calls this (AccurateIngestController::fail()) when it can't
+     * even reach the point of pushing data — backup restore failed, Firebird
+     * staging read failed, etc. Mirrors the FAILED shape the old
+     * refreshStaging() try/catch used to produce, just triggered externally.
+     */
+    public function failBatch(SyncBatch $batch, string $message): SyncBatch
+    {
+        $batch->update([
+            'status' => 'FAILED',
+            'finished_at' => now(),
+            'current_step' => null,
+            'error_message' => $message,
+        ]);
+
+        NotificationDispatcher::toPermission(
+            'sync.accurate.view', 'sync', 'danger',
+            'Sync Accurate gagal',
+            "Batch {$batch->sync_code} gagal sebelum sempat memproses data: {$message}",
+            '/sync/history',
+        );
+
+        return $batch->fresh();
+    }
+
+    /** Sync lock + batch bookkeeping shared by run() and startForAgent(). */
+    protected function startBatch(?int $userId, string $initialStep): SyncBatch
     {
         $this->reapStaleRunningBatches();
 
@@ -91,36 +153,32 @@ class AccurateSyncService
             return $inProgress; // sync lock: don't start a second run while one is genuinely in progress
         }
 
-        $batch = SyncBatch::create([
+        return SyncBatch::create([
             'sync_code' => $this->nextSyncCode(),
             'source' => 'accurate',
             'started_at' => now(),
             'status' => 'RUNNING',
-            'current_step' => 'staging',
+            'current_step' => $initialStep,
             'created_by' => $userId,
         ]);
+    }
 
-        try {
-            $this->refreshStaging();
-        } catch (Throwable $e) {
-            $batch->update([
-                'status' => 'FAILED',
-                'finished_at' => now(),
-                'current_step' => null,
-                'error_message' => $e->getMessage(),
-            ]);
-
-            return $batch->fresh();
-        }
-
-        // Order matters: PO's accurate_ppb_id resolves against `ppb` rows, and
-        // RI's accurate_po_item_id resolves against `purchase_order_items`
-        // rows — both need their upstream link already synced in this same run
-        // (see AccurateSyncService::syncPo()/syncRi() chain-linking comments).
-        // current_step is a short stable key (frontend maps it to a label),
-        // written before each phase (not after) so a client polling
-        // GET /api/sync/status mid-run — see useSyncStatus()'s fast refetch
-        // while RUNNING — can show real progress, not a guess.
+    /**
+     * Everything after the accurate_* staging tables are already populated
+     * (by the Agent's push, or already sitting there for a manual re-run):
+     * match + upsert into Stockwise's own tables, in dependency order.
+     *
+     * Order matters: PO's accurate_ppb_id resolves against `ppb` rows, and
+     * RI's accurate_po_item_id resolves against `purchase_order_items` rows
+     * — both need their upstream link already synced in this same run (see
+     * syncPo()/syncRi() chain-linking comments). current_step is a short
+     * stable key (frontend maps it to a label), written before each phase
+     * (not after) so a client polling GET /api/sync/status mid-run — see
+     * useSyncStatus()'s fast refetch while RUNNING — can show real progress,
+     * not a guess.
+     */
+    public function finishFromStaging(SyncBatch $batch): SyncBatch
+    {
         $batch->update(['current_step' => 'items']);
         $itemCounts = $this->syncItems($batch);
 
@@ -172,6 +230,16 @@ class AccurateSyncService
                 : 'SUCCESS',
         ]);
 
+        $status = $batch->status;
+        if ($status !== 'SUCCESS') {
+            NotificationDispatcher::toPermission(
+                'sync.accurate.view', 'sync', $status === 'FAILED' ? 'danger' : 'warning',
+                $status === 'FAILED' ? 'Sync Accurate gagal' : 'Sync Accurate selesai sebagian',
+                "Batch {$batch->sync_code}: {$counts['total']} data diproses, {$counts['errors']} error.",
+                '/sync/history',
+            );
+        }
+
         return $batch->fresh();
     }
 
@@ -199,46 +267,6 @@ class AccurateSyncService
     }
 
     /**
-     * Refresh accurate_* MySQL staging tables by running the Python
-     * sync-service. Throws on failure (unreachable Firebird, bad credentials,
-     * etc.) — the caller marks the batch FAILED without crashing the request.
-     */
-    protected function refreshStaging(): void
-    {
-        $path = config('accurate.sync_service_path');
-        if (! $path || ! is_dir($path)) {
-            throw new \RuntimeException(
-                "Unable to connect to Accurate database: sync-service path not configured or missing ({$path})."
-            );
-        }
-
-        $process = Process::path($path)
-            ->timeout(config('accurate.process_timeout_seconds'));
-
-        // Windows: the shell that started `php artisan serve` may hand down a
-        // PATH the Firebird client library can't use (e.g. Git Bash/MSYS
-        // mangles it). Give the child a clean, known-good PATH explicitly so
-        // fbclient.dll's own dependency resolution doesn't depend on that.
-        $clientDir = config('accurate.firebird_client_dir');
-        if ($clientDir && PHP_OS_FAMILY === 'Windows') {
-            $systemRoot = getenv('SystemRoot') ?: 'C:\\Windows';
-            $process = $process->env([
-                'PATH' => "{$clientDir};{$systemRoot}\\System32;{$systemRoot}",
-                'SystemRoot' => $systemRoot,
-            ]);
-        }
-
-        $result = $process->run([config('accurate.python_bin'), '-m', 'sync.initial_sync']);
-
-        if (! $result->successful()) {
-            $output = trim($result->errorOutput() ?: $result->output());
-            throw new \RuntimeException(
-                'Unable to connect to Accurate database. '.($output ?: 'sync-service exited with an error.')
-            );
-        }
-    }
-
-    /**
      * @return array{total:int,inserted:int,updated:int,skipped:int,errors:int}
      */
     protected function syncItems(SyncBatch $batch): array
@@ -261,6 +289,18 @@ class AccurateSyncService
             ->get()
             ->keyBy('code');
 
+        // Items with NO inventory row at all (never touched by any Stockwise
+        // operation — request/reserve/pickup/opname) have stock_known=false
+        // and are otherwise invisible to StockwiseEngine (treated as 0,
+        // producing false TIDAK_AMAN alerts even when Accurate shows real
+        // stock — per explicit user instruction, don't wait for a physical
+        // opname to resolve this; seed one opening balance from Accurate's
+        // own qty instead, exactly like the Excel importer already does for
+        // items with a known "SISA STOK". Checked/backfilled on every sync,
+        // not just first sight, so already-synced items self-heal too.
+        $itemIdsWithInventory = Inventory::distinct()->pluck('item_id')->flip();
+        $defaultWarehouseId = Warehouse::query()->orderBy('id')->value('id');
+
         $rows = DB::table('accurate_item')
             ->select('ITEMNO', 'ITEMDESCRIPTION', 'UNIT1', 'SUSPENDED', 'QUANTITY', 'ONORDER', 'PARENTITEM')
             ->orderBy('ITEMNO')
@@ -275,7 +315,7 @@ class AccurateSyncService
             $counts['total']++;
 
             try {
-                $outcome = $this->syncOneItem($row, $unitsByCode, $itemsByCode, $nodesByCode);
+                $outcome = $this->syncOneItem($row, $unitsByCode, $itemsByCode, $nodesByCode, $itemIdsWithInventory, $defaultWarehouseId);
                 $counts[$outcome['bucket']]++;
 
                 SyncLog::create([
@@ -312,7 +352,9 @@ class AccurateSyncService
         object $row,
         \Illuminate\Support\Collection $unitsByCode,
         \Illuminate\Support\Collection $itemsByCode,
-        \Illuminate\Support\Collection $nodesByCode
+        \Illuminate\Support\Collection $nodesByCode,
+        \Illuminate\Support\Collection $itemIdsWithInventory,
+        ?int $defaultWarehouseId
     ): array {
         $itemno = trim((string) ($row->ITEMNO ?? ''));
         if ($itemno === '') {
@@ -351,6 +393,8 @@ class AccurateSyncService
                 && ($newDescription === '' || $existing->description === $newDescription);
 
             if ($unchanged && $existing->accurate_synced_at !== null) {
+                $this->seedOpeningBalanceIfMissing($existing->id, $newQty, $itemIdsWithInventory, $defaultWarehouseId);
+
                 return ['bucket' => 'skipped', 'action' => 'SKIP', 'message' => 'Tidak ada perubahan.'];
             }
 
@@ -377,6 +421,8 @@ class AccurateSyncService
                 $existing->forceFill(['description' => $newDescription]);
             }
             $existing->save();
+
+            $this->seedOpeningBalanceIfMissing($existing->id, $newQty, $itemIdsWithInventory, $defaultWarehouseId);
 
             return [
                 'bucket' => 'updated',
@@ -427,12 +473,48 @@ class AccurateSyncService
             'accurate_category_induk' => $newInduk,
         ]);
 
+        $this->seedOpeningBalanceIfMissing($created->id, $newQty, $itemIdsWithInventory, $defaultWarehouseId);
+
         return [
             'bucket' => 'inserted',
             'action' => 'INSERT',
             'message' => 'Barang baru dari Accurate.',
             'new_data' => ['code' => $created->code, 'description' => $created->description, 'accurate_category_induk' => $newInduk] + $category,
         ];
+    }
+
+    /**
+     * Seeds one OPENING_BALANCE movement from Accurate's own qty for an item
+     * that has never had ANY inventory row (any warehouse) — i.e. never
+     * touched by a Stockwise operation. Per explicit user instruction, this
+     * no longer waits for a physical Stock Opname: StockwiseEngine treats
+     * `stock_known = false` as unknown-not-zero, which was producing false
+     * TIDAK_AMAN alerts for items Accurate shows real stock for.
+     *
+     * Deliberately a ONE-TIME seed, not a running sync of Accurate's qty:
+     * once this item has any inventory row (`stock_known` becomes true via
+     * StockLedgerService), later Accurate quantity changes stay
+     * reference-only on `items.accurate_qty_onhand` — same rule as every
+     * other Accurate sync in this class — so a request/reserve/pickup/opname
+     * that happens afterward is never silently overwritten by a later sync.
+     *
+     * No per-warehouse attribution exists in Accurate's data (see
+     * docs/sync-architecture.md "Why the stock number is a reference
+     * column") — uses the same lowest-id default warehouse already used for
+     * Accurate-derived stock opname/PO rows elsewhere in this class.
+     */
+    protected function seedOpeningBalanceIfMissing(
+        int $itemId,
+        float $qty,
+        \Illuminate\Support\Collection $itemIdsWithInventory,
+        ?int $defaultWarehouseId
+    ): void {
+        if ($defaultWarehouseId === null || $itemIdsWithInventory->has($itemId)) {
+            return;
+        }
+
+        $this->ledger->openingBalance($itemId, $defaultWarehouseId, max($qty, 0));
+        $itemIdsWithInventory->put($itemId, true);
     }
 
     /**

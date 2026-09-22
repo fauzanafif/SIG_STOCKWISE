@@ -11,35 +11,59 @@ docs/ACCURATE_MAPPING.md open items).
 MYSQL_MAX_VARCHAR = 16000  # conservative ceiling before falling back to TEXT (utf8mb4 row-size limits)
 
 
-def firebird_column_to_mysql_ddl(col: dict) -> str:
+def firebird_column_to_mysql_type(col: dict) -> dict:
+    """Structured {type, length, nullable} decision — the single source of
+    truth both firebird_column_to_mysql_ddl() (legacy direct-MySQL path) and
+    agent/run.py (pushed to Laravel's ingest API as JSON, never raw SQL —
+    see backend/app/Services/Accurate/StagingTableWriter.php) build from.
+    `type` is always one of the values Laravel's config('accurate.column_types')
+    whitelist accepts — keep the two lists in sync if either changes.
+    """
     ftype = col["type"]
     length = col["length"] or 0
-    not_null = " NOT NULL" if col["not_null"] else " NULL"
+    nullable = not col["not_null"]
 
     if ftype == "SMALLINT":
-        sql_type = "SMALLINT"
+        return {"type": "SMALLINT", "length": None, "nullable": nullable}
     elif ftype == "INTEGER":
-        sql_type = "INT"
+        return {"type": "INT", "length": None, "nullable": nullable}
     elif ftype == "BIGINT":
-        sql_type = "BIGINT"
-    elif ftype in ("FLOAT",):
-        sql_type = "FLOAT"
+        return {"type": "BIGINT", "length": None, "nullable": nullable}
+    elif ftype == "FLOAT":
+        return {"type": "FLOAT", "length": None, "nullable": nullable}
     elif ftype == "DOUBLE PRECISION":
-        sql_type = "DOUBLE"
+        return {"type": "DOUBLE", "length": None, "nullable": nullable}
     elif ftype == "DATE":
-        sql_type = "DATE"
+        return {"type": "DATE", "length": None, "nullable": nullable}
     elif ftype == "TIME":
-        sql_type = "TIME"
+        return {"type": "TIME", "length": None, "nullable": nullable}
     elif ftype == "TIMESTAMP":
-        sql_type = "DATETIME"
+        return {"type": "DATETIME", "length": None, "nullable": nullable}
     elif ftype in ("VARCHAR", "CSTRING"):
-        sql_type = f"VARCHAR({length})" if 0 < length <= MYSQL_MAX_VARCHAR else "TEXT"
+        if 0 < length <= MYSQL_MAX_VARCHAR:
+            return {"type": "VARCHAR", "length": length, "nullable": nullable}
+        return {"type": "TEXT", "length": None, "nullable": nullable}
     elif ftype == "CHAR":
-        sql_type = f"CHAR({length})" if 0 < length <= 255 else "TEXT"
+        if 0 < length <= 255:
+            return {"type": "CHAR", "length": length, "nullable": nullable}
+        return {"type": "TEXT", "length": None, "nullable": nullable}
     elif ftype == "BLOB":
-        sql_type = "LONGTEXT" if col.get("sub_type") == 1 else "LONGBLOB"
+        if col.get("sub_type") == 1:
+            return {"type": "LONGTEXT", "length": None, "nullable": nullable}
+        return {"type": "LONGBLOB", "length": None, "nullable": nullable}
     else:
         # Unknown Firebird type code -> safest lossless fallback
-        sql_type = "LONGTEXT"
+        return {"type": "LONGTEXT", "length": None, "nullable": nullable}
+
+
+def firebird_column_to_mysql_ddl(col: dict) -> str:
+    """Legacy direct-MySQL path (sync-service/database/mysql_client.py) —
+    unused by the Agent's push flow (agent/run.py), kept until that old path
+    is fully retired. Builds on firebird_column_to_mysql_type() so the type
+    decision itself lives in exactly one place.
+    """
+    decided = firebird_column_to_mysql_type(col)
+    sql_type = f"{decided['type']}({decided['length']})" if decided["length"] else decided["type"]
+    not_null = " NULL" if decided["nullable"] else " NOT NULL"
 
     return f"`{col['name']}` {sql_type}{not_null}"

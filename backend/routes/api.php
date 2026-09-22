@@ -1,15 +1,18 @@
 <?php
 
+use App\Http\Controllers\Api\Agent\AccurateIngestController;
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\DashboardController;
 use App\Http\Controllers\Api\ExportController;
 use App\Http\Controllers\Api\HealthController;
 use App\Http\Controllers\Api\InventoryController;
+use App\Http\Controllers\Api\InventoryDashboardController;
 use App\Http\Controllers\Api\ItemController;
 use App\Http\Controllers\Api\LegacyExportController;
 use App\Http\Controllers\Api\MasterDataController;
 use App\Http\Controllers\Api\MaterialRequestController;
 use App\Http\Controllers\Api\GoodsIssueController;
+use App\Http\Controllers\Api\NotificationController;
 use App\Http\Controllers\Api\NpbgController;
 use App\Http\Controllers\Api\NpbgVerificationController;
 use App\Http\Controllers\Api\PermissionController;
@@ -47,6 +50,21 @@ Route::post('/login', [AuthController::class, 'login'])
     ->middleware('throttle:20,1')
     ->name('api.login');
 
+/*
+|--------------------------------------------------------------------------
+| Sync Agent ingest (docs/sync-architecture.md) — office Agent only, never a
+| human user. Gated by the Sanctum `agent:sync` ability (see
+| App\Console\Commands\Accurate\AgentTokenCommand), deliberately separate
+| from the RBAC `permission:` middleware used by every route below.
+|--------------------------------------------------------------------------
+*/
+Route::middleware(['auth:sanctum', 'abilities:agent:sync'])->prefix('agent/sync')->group(function (): void {
+    Route::post('/sessions', [AccurateIngestController::class, 'startSession'])->name('api.agent.sync.start');
+    Route::post('/sessions/{syncBatch}/tables/{table}', [AccurateIngestController::class, 'pushTable'])->name('api.agent.sync.push-table');
+    Route::post('/sessions/{syncBatch}/complete', [AccurateIngestController::class, 'complete'])->name('api.agent.sync.complete');
+    Route::post('/sessions/{syncBatch}/fail', [AccurateIngestController::class, 'fail'])->name('api.agent.sync.fail');
+});
+
 Route::middleware('auth:sanctum')->group(function (): void {
     Route::post('/logout', [AuthController::class, 'logout'])->name('api.logout');
     Route::get('/me', [AuthController::class, 'me'])->name('api.me');
@@ -56,6 +74,13 @@ Route::middleware('auth:sanctum')->group(function (): void {
         ->middleware('permission:role.view')->name('api.roles.index');
     Route::get('/permissions', [PermissionController::class, 'index'])
         ->middleware('permission:permission.view')->name('api.permissions.index');
+
+    Route::middleware('permission:notification.view_own')->group(function () {
+        Route::get('/notifications', [NotificationController::class, 'index'])->name('api.notifications.index');
+        Route::get('/notifications/unread-count', [NotificationController::class, 'unreadCount'])->name('api.notifications.unread-count');
+        Route::post('/notifications/{notification}/read', [NotificationController::class, 'markRead'])->name('api.notifications.read');
+        Route::post('/notifications/read-all', [NotificationController::class, 'markAllRead'])->name('api.notifications.read-all');
+    });
 
     /*
     |--------------------------------------------------------------------------
@@ -125,29 +150,36 @@ Route::middleware('auth:sanctum')->group(function (): void {
     |--------------------------------------------------------------------------
     | PHASE 4 — Material Request
     |--------------------------------------------------------------------------
+    | Gated off behind the material_request feature flag (2026-09-22 user
+    | decision) — see config/stockwise.php 'features' and
+    | App\Http\Middleware\EnsureFeatureEnabled. Every route below 403s with a
+    | clear "belum diaktifkan" message while the flag is off, including the
+    | read-only ones, since the frontend already hides the whole section.
     */
-    Route::get('/requests', [MaterialRequestController::class, 'index'])
-        ->middleware('permission:request.view|request.view_own')->name('api.requests.index');
-    Route::get('/requests/{materialRequest}', [MaterialRequestController::class, 'show'])
-        ->middleware('permission:request.view|request.view_own')->name('api.requests.show');
-    Route::post('/requests', [MaterialRequestController::class, 'store'])
-        ->middleware('permission:request.create')->name('api.requests.store');
-    Route::match(['put', 'patch'], '/requests/{materialRequest}', [MaterialRequestController::class, 'update'])
-        ->middleware('permission:request.update_own')->name('api.requests.update');
-    Route::post('/requests/{materialRequest}/submit', [MaterialRequestController::class, 'submit'])
-        ->middleware('permission:request.update_own')->name('api.requests.submit');
-    Route::post('/requests/{materialRequest}/review', [MaterialRequestController::class, 'review'])
-        ->middleware('permission:request.review')->name('api.requests.review');
-    Route::match(['put', 'patch'], '/requests/{materialRequest}/refs', [MaterialRequestController::class, 'setRefs'])
-        ->middleware('permission:request.review')->name('api.requests.refs');
-    Route::post('/requests/{materialRequest}/items/{item}/physical-check', [MaterialRequestController::class, 'physicalCheck'])
-        ->middleware('permission:request.physical_check')->name('api.requests.physical-check');
-    Route::post('/requests/{materialRequest}/reserve', [MaterialRequestController::class, 'reserve'])
-        ->middleware('permission:request.reserve')->name('api.requests.reserve');
-    Route::post('/requests/{materialRequest}/need-purchase', [MaterialRequestController::class, 'needPurchase'])
-        ->middleware('permission:request.set_need_purchase')->name('api.requests.need-purchase');
-    Route::post('/requests/{materialRequest}/cancel', [MaterialRequestController::class, 'cancel'])
-        ->middleware('permission:request.cancel_own|request.cancel_any')->name('api.requests.cancel');
+    Route::middleware('feature:material_request')->group(function () {
+        Route::get('/requests', [MaterialRequestController::class, 'index'])
+            ->middleware('permission:request.view|request.view_own')->name('api.requests.index');
+        Route::get('/requests/{materialRequest}', [MaterialRequestController::class, 'show'])
+            ->middleware('permission:request.view|request.view_own')->name('api.requests.show');
+        Route::post('/requests', [MaterialRequestController::class, 'store'])
+            ->middleware('permission:request.create')->name('api.requests.store');
+        Route::match(['put', 'patch'], '/requests/{materialRequest}', [MaterialRequestController::class, 'update'])
+            ->middleware('permission:request.update_own')->name('api.requests.update');
+        Route::post('/requests/{materialRequest}/submit', [MaterialRequestController::class, 'submit'])
+            ->middleware('permission:request.update_own')->name('api.requests.submit');
+        Route::post('/requests/{materialRequest}/review', [MaterialRequestController::class, 'review'])
+            ->middleware('permission:request.review')->name('api.requests.review');
+        Route::match(['put', 'patch'], '/requests/{materialRequest}/refs', [MaterialRequestController::class, 'setRefs'])
+            ->middleware('permission:request.review')->name('api.requests.refs');
+        Route::post('/requests/{materialRequest}/items/{item}/physical-check', [MaterialRequestController::class, 'physicalCheck'])
+            ->middleware('permission:request.physical_check')->name('api.requests.physical-check');
+        Route::post('/requests/{materialRequest}/reserve', [MaterialRequestController::class, 'reserve'])
+            ->middleware('permission:request.reserve')->name('api.requests.reserve');
+        Route::post('/requests/{materialRequest}/need-purchase', [MaterialRequestController::class, 'needPurchase'])
+            ->middleware('permission:request.set_need_purchase')->name('api.requests.need-purchase');
+        Route::post('/requests/{materialRequest}/cancel', [MaterialRequestController::class, 'cancel'])
+            ->middleware('permission:request.cancel_own|request.cancel_any')->name('api.requests.cancel');
+    });
 
     /*
     |--------------------------------------------------------------------------
@@ -376,6 +408,8 @@ Route::middleware('auth:sanctum')->group(function (): void {
 
     // PHASE 9 — Dashboard (ringkasan per-peran).
     Route::get('/dashboard', DashboardController::class)->name('api.dashboard');
+    Route::get('/dashboard/inventory', InventoryDashboardController::class)
+        ->middleware('permission:inventory.view_analysis')->name('api.dashboard.inventory');
 
     // PHASE 10 — Laporan & export (xlsx / csv / pdf-print).
     Route::get('/export/{dataset}', ExportController::class)->name('api.export');

@@ -9,6 +9,7 @@ use App\Models\MaterialRequestItem;
 use App\Models\StockReservation;
 use App\Models\User;
 use App\Services\Inventory\StockLedgerService;
+use App\Services\Notifications\NotificationDispatcher;
 use App\Support\Network\IpClassifier;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -98,6 +99,14 @@ class RequestService
                 $this->snapshotStock($line);
             }
             $request->update(['status' => 'SUBMITTED', 'submitted_at' => now()]);
+
+            NotificationDispatcher::toPermission(
+                'request.review', 'request', 'info',
+                'Request baru perlu direview',
+                "Request {$request->number} dari {$request->requester_name} menunggu review.",
+                "/requests/{$request->id}",
+                exceptUserId: $request->requester_id,
+            );
 
             return $request->fresh('items');
         });
@@ -246,6 +255,27 @@ class RequestService
             };
             $request->update(['status' => $status]);
 
+            $statusMessage = match ($status) {
+                'READY', 'RESERVED' => 'sudah di-reserve dan siap diambil.',
+                'PARTIAL' => 'sebagian sudah di-reserve, sebagian perlu dibeli dulu.',
+                'NEED_PURCHASE' => 'perlu dibeli dulu — stok tidak mencukupi.',
+                default => 'statusnya diperbarui.',
+            };
+            NotificationDispatcher::toUser(
+                $request->requester_id, 'request', $status === 'NEED_PURCHASE' ? 'warning' : 'success',
+                'Request Anda diproses',
+                "Request {$request->number} {$statusMessage}",
+                "/requests/{$request->id}",
+            );
+            if ($status === 'NEED_PURCHASE' || $status === 'PARTIAL') {
+                NotificationDispatcher::toPermission(
+                    'purchase_proposal.create', 'request', 'info',
+                    'Request perlu Usulan Pembelian',
+                    "Request {$request->number} ada item yang perlu dibeli.",
+                    "/requests/{$request->id}",
+                );
+            }
+
             return $request->fresh('items');
         });
     }
@@ -275,6 +305,15 @@ class RequestService
 
             $request->items()->update(['line_status' => 'CANCELLED', 'qty_reserved' => 0]);
             $request->update(['status' => 'CANCELLED', 'cancel_reason' => $reason]);
+
+            if ($request->requester_id && $request->requester_id !== $user->id) {
+                NotificationDispatcher::toUser(
+                    $request->requester_id, 'request', 'warning',
+                    'Request Anda dibatalkan',
+                    "Request {$request->number} dibatalkan: {$reason}",
+                    "/requests/{$request->id}",
+                );
+            }
 
             return $request->fresh('items');
         });

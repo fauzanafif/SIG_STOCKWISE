@@ -9,6 +9,7 @@ use App\Models\PurchaseProposal;
 use App\Models\User;
 use App\Services\Inventory\InventoryAnalyzer;
 use App\Services\Inventory\StockwiseEngine;
+use App\Services\Notifications\NotificationDispatcher;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
@@ -135,6 +136,13 @@ class PurchaseProposalService
         abort_if($ppb->items()->count() === 0, 422, 'PPB kosong.');
         $ppb->update(['status' => 'SUBMITTED']);
 
+        NotificationDispatcher::toPermission(
+            'purchase_proposal.review', 'purchase_proposal', 'info',
+            'Usulan Pembelian perlu direview',
+            "Usulan Pembelian {$ppb->number} menunggu review.",
+            "/purchase-proposals/{$ppb->id}",
+        );
+
         return $ppb;
     }
 
@@ -156,6 +164,15 @@ class PurchaseProposalService
         ]);
         $ppb->items()->update(['line_status' => 'APPROVED']);
 
+        NotificationDispatcher::toPermission(
+            'po.create', 'purchase_proposal', 'success',
+            'Usulan Pembelian disetujui',
+            "Usulan Pembelian {$ppb->number} disetujui, siap dibuatkan PO.",
+            "/purchase-proposals/{$ppb->id}",
+            exceptUserId: $user->id,
+        );
+        $this->notifyRequester($ppb, 'success', 'Usulan Pembelian Anda disetujui', "Usulan Pembelian {$ppb->number} disetujui.");
+
         return $ppb->fresh('items');
     }
 
@@ -163,6 +180,8 @@ class PurchaseProposalService
     {
         $this->assert($ppb, ['SUBMITTED', 'REVIEW']);
         $ppb->update(['status' => 'CANCELLED', 'notes' => trim(($ppb->notes ?? '')."\nDitolak: {$reason}")]);
+
+        $this->notifyRequester($ppb, 'danger', 'Usulan Pembelian Anda ditolak', "Usulan Pembelian {$ppb->number} ditolak: {$reason}");
 
         return $ppb;
     }
@@ -193,6 +212,7 @@ class PurchaseProposalService
             if (! $line && $type === 'CLOSE') {
                 $ppb->items()->update(['line_status' => 'CLOSED']);
                 $ppb->update(['status' => 'CANCELLED']);
+                $this->notifyRequester($ppb, 'warning', 'Usulan Pembelian Anda ditutup', "Usulan Pembelian {$ppb->number} ditutup: {$reason}");
             }
 
             return $ppb->fresh('items', 'amendments');
@@ -200,6 +220,11 @@ class PurchaseProposalService
     }
 
     // ------------------------------------------------------------------
+
+    private function notifyRequester(PurchaseProposal $ppb, string $level, string $title, string $body): void
+    {
+        NotificationDispatcher::toUser($ppb->requester_id, 'purchase_proposal', $level, $title, $body, "/purchase-proposals/{$ppb->id}");
+    }
 
     private function makeHeader(User $user, array $attrs): PurchaseProposal
     {

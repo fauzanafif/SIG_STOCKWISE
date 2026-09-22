@@ -26,6 +26,7 @@ import {
 import { useAuth } from '@/auth/AuthContext'
 import { Button } from '@/components/ui/button'
 import { Logo } from '@/components/Logo'
+import { NotificationBell } from '@/components/NotificationBell'
 import { cn } from '@/lib/utils'
 
 interface NavItem {
@@ -164,6 +165,7 @@ export function AppLayout() {
             <Logo />
           </div>
           <div className="flex items-center gap-3">
+            {hasPermission('notification.view_own') && <NotificationBell />}
             <div className="hidden text-right sm:block">
               <div className="text-sm font-medium leading-tight">{user?.name}</div>
               <div className="text-xs text-muted-foreground">
@@ -193,7 +195,7 @@ export function AppLayout() {
         )}
 
         <main className="min-w-0 flex-1 p-4 sm:p-6 lg:p-8">
-          <div className="mx-auto max-w-6xl space-y-6">
+          <div className="mx-auto w-full max-w-[1920px] space-y-6">
             <Outlet />
           </div>
         </main>

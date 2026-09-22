@@ -54,4 +54,20 @@ return [
         ))),
     ],
 
+    /*
+    |--------------------------------------------------------------------------
+    | Feature flags — deliberately env-only, never exposed in an admin/Settings
+    | UI. "belum diaktifkan, hanya developer yang bisa aktifkan": to turn a
+    | flag back on, a developer edits .env, not a toggle in the app.
+    |--------------------------------------------------------------------------
+    */
+    'features' => [
+        // Material Request (Request Barang) — turned off per user decision
+        // 2026-09-22: RequestService::reserve() has a known dead-end for
+        // physical-check-mismatch lines (see docs/phase-13 audit) that can
+        // leave a request line permanently unpurchasable. Re-enable only
+        // after that's fixed.
+        'material_request_enabled' => (bool) env('FEATURE_MATERIAL_REQUEST_ENABLED', false),
+    ],
+
 ];

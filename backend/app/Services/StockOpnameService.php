@@ -10,6 +10,7 @@ use App\Models\StockOpnameItem;
 use App\Models\User;
 use App\Models\Warehouse;
 use App\Services\Inventory\StockLedgerService;
+use App\Services\Notifications\NotificationDispatcher;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
@@ -78,6 +79,14 @@ class StockOpnameService
                 ]);
             }
 
+            NotificationDispatcher::toPermission(
+                'opname.count', 'opname', 'info',
+                'Stock Opname dijadwalkan',
+                "Opname {$opname->number} dijadwalkan {$date} di {$warehouse->name}.",
+                "/stock-opnames/{$opname->id}",
+                exceptUserId: $user->id,
+            );
+
             return $opname->load('items');
         });
     }
@@ -127,6 +136,14 @@ class StockOpnameService
         }
 
         $opname->update(['status' => 'PENDING_REVIEW', 'submitted_at' => now()]);
+
+        NotificationDispatcher::toPermission(
+            'opname.approve', 'opname', 'info',
+            'Stock Opname menunggu review',
+            "Opname {$opname->number} sudah dihitung, menunggu review.",
+            "/stock-opnames/{$opname->id}",
+            exceptUserId: $opname->counted_by,
+        );
 
         return $opname->fresh('items');
     }
@@ -198,6 +215,16 @@ class StockOpnameService
                 'reviewed_at' => now(),
                 'review_note' => $note,
             ]);
+
+            if ($anyRecount) {
+                NotificationDispatcher::toPermission(
+                    'opname.count', 'opname', 'warning',
+                    'Stock Opname perlu hitung ulang',
+                    "Opname {$opname->number}: beberapa item perlu dihitung ulang.",
+                    "/stock-opnames/{$opname->id}",
+                    exceptUserId: $reviewer->id,
+                );
+            }
 
             return $opname->fresh('items');
         });

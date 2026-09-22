@@ -43,13 +43,13 @@ export function SyncPage() {
     <div className="space-y-4">
       <PageHeader
         title="Sync Accurate"
-        subtitle="Tarik data terbaru dari Accurate (Firebird) ke Stockwise"
+        subtitle="Data terbaru masuk otomatis dari Accurate jam 04:00, 10:30 & 20:30. Tombol di sini hanya memproses ulang data yang terakhir masuk."
         icon={<CloudCog className="size-5" />}
         actions={
           canTrigger ? (
             <Button size="sm" disabled={isRunning} onClick={() => trigger.mutate()}>
               <RefreshCw className={`mr-2 size-4 ${isRunning ? 'animate-spin' : ''}`} />
-              {isRunning ? 'Syncing…' : 'Sync Accurate'}
+              {isRunning ? 'Memproses…' : 'Proses Ulang'}
             </Button>
           ) : undefined
         }
@@ -81,7 +81,8 @@ export function SyncPage() {
 
           {!isLoading && !status && (
             <p className="text-sm text-muted-foreground">
-              Belum pernah ada sinkronisasi. Klik &ldquo;Sync Accurate&rdquo; untuk menjalankan yang pertama.
+              Belum ada data yang masuk dari Accurate. Sinkronisasi otomatis berjalan jam 04:00, 10:30 &
+              20:30 — data akan muncul di sini setelah jadwal berikutnya.
             </p>
           )}
 

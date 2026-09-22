@@ -33,14 +33,15 @@ class SafetyStockApiTest extends TestCase
         $res = $this->postJson('/api/safety-stocks', [
             'item_id' => $item->id,
             'source_category' => 'ASSETS',
-            'avg_usage_1m' => 10,
+            'avg_usage_3m' => 10,
             'lead_time_days' => 30,
         ])->assertCreated();
 
-        // sqrt_lt = SQRT(30/30) = 1; safety_stock = ROUNDUP((2.33*10)*1,0) = 24; min_pr = ROUNDUP((10*30/30)+1,0) = 11
+        // lead_time_demand = 10*(30/30) = 10; safety_stock = ROUNDUP(2.33*10,0) = 24; min_pr = ROUNDUP(10+24,0) = 34
+        // sqrt_lt = SQRT(30/30) = 1 (informational only, no longer part of the formula)
         $res->assertJsonPath('data.sqrt_lt', 1)
             ->assertJsonPath('data.safety_stock', 24)
-            ->assertJsonPath('data.min_pr', 11)
+            ->assertJsonPath('data.min_pr', 34)
             ->assertJsonPath('data.is_effective', true)
             ->assertJsonPath('data.needs_review', false)
             ->assertJsonPath('data.item_code', $item->code);
@@ -52,11 +53,11 @@ class SafetyStockApiTest extends TestCase
         $this->actingAsRole('admin_gudang');
 
         $first = $this->postJson('/api/safety-stocks', [
-            'item_id' => $item->id, 'avg_usage_1m' => 10, 'lead_time_days' => 30,
+            'item_id' => $item->id, 'avg_usage_3m' => 10, 'lead_time_days' => 30,
         ])->json('data');
 
         $second = $this->postJson('/api/safety-stocks', [
-            'item_id' => $item->id, 'avg_usage_1m' => 20, 'lead_time_days' => 15,
+            'item_id' => $item->id, 'avg_usage_3m' => 20, 'lead_time_days' => 15,
         ])->assertCreated()
             ->assertJsonPath('data.is_effective', false)
             ->assertJsonPath('data.needs_review', true)
@@ -80,15 +81,16 @@ class SafetyStockApiTest extends TestCase
         $item = Item::factory()->create();
         $this->actingAsRole('admin_gudang');
         $row = $this->postJson('/api/safety-stocks', [
-            'item_id' => $item->id, 'avg_usage_1m' => 10, 'lead_time_days' => 30,
+            'item_id' => $item->id, 'avg_usage_3m' => 10, 'lead_time_days' => 30,
         ])->json('data');
 
+        // lead_time_days=0 -> lead_time_demand=0 -> safety_stock=0, min_pr=0 (no flat +1 anymore)
         $this->putJson("/api/safety-stocks/{$row['id']}", [
-            'avg_usage_1m' => 5, 'lead_time_days' => 0,
+            'avg_usage_3m' => 5, 'lead_time_days' => 0,
         ])->assertOk()
             ->assertJsonPath('data.sqrt_lt', 0)
             ->assertJsonPath('data.safety_stock', 0)
-            ->assertJsonPath('data.min_pr', 1);
+            ->assertJsonPath('data.min_pr', 0);
     }
 
     public function test_delete_promotes_next_highest_row_to_effective(): void
@@ -96,10 +98,10 @@ class SafetyStockApiTest extends TestCase
         $item = Item::factory()->create();
         $this->actingAsRole('admin_gudang');
         $high = $this->postJson('/api/safety-stocks', [
-            'item_id' => $item->id, 'avg_usage_1m' => 50, 'lead_time_days' => 30,
+            'item_id' => $item->id, 'avg_usage_3m' => 50, 'lead_time_days' => 30,
         ])->json('data');
         $low = $this->postJson('/api/safety-stocks', [
-            'item_id' => $item->id, 'avg_usage_1m' => 5, 'lead_time_days' => 5,
+            'item_id' => $item->id, 'avg_usage_3m' => 5, 'lead_time_days' => 5,
         ])->json('data');
 
         $this->deleteJson("/api/safety-stocks/{$high['id']}")->assertOk();
@@ -112,7 +114,7 @@ class SafetyStockApiTest extends TestCase
         $item = Item::factory()->create();
         $this->actingAsRole('admin_gudang');
         $row = $this->postJson('/api/safety-stocks', [
-            'item_id' => $item->id, 'avg_usage_1m' => 10, 'lead_time_days' => 30,
+            'item_id' => $item->id, 'avg_usage_3m' => 10, 'lead_time_days' => 30,
         ])->json('data');
 
         $this->actingAsRole('anak_gudang');
@@ -124,7 +126,7 @@ class SafetyStockApiTest extends TestCase
         $item = Item::factory()->create(['code' => 'SS.001', 'description' => 'Katup Regulator']);
         $this->actingAsRole('admin_gudang');
         $this->postJson('/api/safety-stocks', [
-            'item_id' => $item->id, 'avg_usage_1m' => 10, 'lead_time_days' => 30,
+            'item_id' => $item->id, 'avg_usage_3m' => 10, 'lead_time_days' => 30,
         ])->assertCreated();
 
         $this->getJson('/api/safety-stocks?search=Regulator')->assertOk()->assertJsonCount(1, 'data');

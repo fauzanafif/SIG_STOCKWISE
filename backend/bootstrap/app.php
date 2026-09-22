@@ -1,11 +1,14 @@
 <?php
 
 use App\Http\Middleware\CheckPermission;
+use App\Http\Middleware\EnsureFeatureEnabled;
 use Illuminate\Auth\AuthenticationException;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
 use Illuminate\Http\Request;
+use Illuminate\Validation\ValidationException;
+use Laravel\Sanctum\Http\Middleware\CheckAbilities;
 
 return Application::configure(basePath: dirname(__DIR__))
     ->withRouting(
@@ -17,6 +20,10 @@ return Application::configure(basePath: dirname(__DIR__))
     ->withMiddleware(function (Middleware $middleware): void {
         $middleware->alias([
             'permission' => CheckPermission::class,
+            // Sync Agent token check (App\Console\Commands\Accurate\AgentTokenCommand) —
+            // distinct from human RBAC's `permission:` alias above.
+            'abilities' => CheckAbilities::class,
+            'feature' => EnsureFeatureEnabled::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
@@ -29,6 +36,21 @@ return Application::configure(basePath: dirname(__DIR__))
         $exceptions->render(function (AuthenticationException $e, Request $request) {
             if ($request->is('api/*')) {
                 return response()->json(['message' => 'Unauthenticated.'], 401);
+            }
+        });
+
+        // Laravel's ValidationException hardcodes its top-level "message" to
+        // the literal string "The given data was invalid." (not a real
+        // translation key, so lang/id/validation.php can't reach it) — swap
+        // it for an Indonesian summary. The per-field "errors" (the part the
+        // frontend actually shows the user, see apiErrorMessage()) already
+        // come out localized via lang/id/validation.php untouched here.
+        $exceptions->render(function (ValidationException $e, Request $request) {
+            if ($request->is('api/*')) {
+                return response()->json([
+                    'message' => 'Data yang dikirim tidak valid. Periksa kembali isian yang ditandai.',
+                    'errors' => $e->errors(),
+                ], $e->status);
             }
         });
     })->create();

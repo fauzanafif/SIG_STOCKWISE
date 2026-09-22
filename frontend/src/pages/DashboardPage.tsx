@@ -17,6 +17,7 @@ import { useAuth } from '@/auth/AuthContext'
 import { useDashboard, type DashboardCard } from '@/features/dashboard/api'
 import { useSyncStatus } from '@/features/sync/api'
 import { PageHeader } from '@/components/PageHeader'
+import { InventoryDashboard } from '@/components/dashboard/InventoryDashboard'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { RequestStatusBadge } from '@/components/ui/request-badge'
@@ -57,9 +58,11 @@ const TONE: Record<DashboardCard['tone'], string> = {
 const PIE_COLORS = ['#2563eb', '#0ea5e9', '#22c55e', '#f59e0b', '#ef4444', '#8b5cf6', '#14b8a6', '#64748b']
 
 export function DashboardPage() {
-  const { user } = useAuth()
+  const { user, hasPermission } = useAuth()
   const { data, isLoading } = useDashboard()
   if (!user) return null
+
+  const canViewInventoryDashboard = hasPermission('inventory.view_analysis')
 
   return (
     <div className="space-y-6">
@@ -70,6 +73,12 @@ export function DashboardPage() {
       />
 
       <AccurateSyncWidget />
+
+      {canViewInventoryDashboard && <InventoryDashboard />}
+
+      {canViewInventoryDashboard && (data?.cards.length ?? 0) > 0 && (
+        <h2 className="pt-2 text-sm font-semibold uppercase tracking-wide text-muted-foreground">Ringkasan Operasional</h2>
+      )}
 
       {isLoading && <p className="text-muted-foreground">Memuat ringkasan…</p>}
 

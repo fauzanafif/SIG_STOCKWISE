@@ -6,6 +6,7 @@ use App\Models\Npbg;
 use App\Models\NpbgVerification;
 use App\Models\NpbgVerificationLog;
 use App\Models\User;
+use App\Services\Notifications\NotificationDispatcher;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
@@ -35,6 +36,14 @@ class NpbgVerificationService
             ]);
 
             $this->log($verification, $user, 'OPEN', null, NpbgVerification::STATUS_DIAJUKAN, $alasanPengajuan, $attachment);
+
+            NotificationDispatcher::toPermission(
+                'npbg.verification.manage', 'npbg_verification', 'info',
+                'Klarifikasi NPBG baru',
+                "NPBG {$npbg->no_npbg} diajukan klarifikasi: {$alasanPengajuan}",
+                "/npbg/{$npbg->id}",
+                exceptUserId: $user->id,
+            );
 
             return $verification->fresh();
         });
@@ -91,6 +100,7 @@ class NpbgVerificationService
             } else {
                 $verification->update(['escalated_at' => now()]);
                 $this->transition($verification, $user, 'RESPOND_REJECT', NpbgVerification::STATUS_PERLU_VERIFIKASI_BOS, $reason, $attachment);
+                $this->notifyBos($verification, "NPBG {$verification->npbg->no_npbg}: barang alternatif ditolak, perlu keputusan BOS.");
             }
 
             return $verification->fresh();
@@ -108,6 +118,7 @@ class NpbgVerificationService
         return DB::transaction(function () use ($verification, $user, $note) {
             $verification->update(['escalated_at' => now()]);
             $this->transition($verification, $user, 'ESCALATE', NpbgVerification::STATUS_PERLU_VERIFIKASI_BOS, $note);
+            $this->notifyBos($verification, "NPBG {$verification->npbg->no_npbg} dieskalasi, perlu keputusan BOS.");
 
             return $verification->fresh();
         });
@@ -133,11 +144,29 @@ class NpbgVerificationService
             $this->transition($verification, $user, 'BOS_DECIDE', $keputusan, $catatan, $attachment);
             $this->close($verification, $user);
 
+            NotificationDispatcher::toPermission(
+                'npbg.verification.manage', 'npbg_verification', $keputusan === NpbgVerification::STATUS_DISETUJUI ? 'success' : 'danger',
+                'BOS memutuskan klarifikasi NPBG',
+                "NPBG {$verification->npbg->no_npbg}: BOS memutuskan {$keputusan}.".($catatan ? " Catatan: {$catatan}" : ''),
+                "/npbg/{$verification->npbg_id}",
+                exceptUserId: $user->id,
+            );
+
             return $verification->fresh();
         });
     }
 
     // ------------------------------------------------------------------
+
+    private function notifyBos(NpbgVerification $verification, string $body): void
+    {
+        NotificationDispatcher::toPermission(
+            'npbg.verification.bos_decide', 'npbg_verification', 'warning',
+            'Klarifikasi NPBG perlu keputusan BOS',
+            $body,
+            "/npbg/{$verification->npbg_id}",
+        );
+    }
 
     private function close(NpbgVerification $verification, User $user): void
     {

@@ -54,7 +54,16 @@ api.interceptors.response.use(
 /** Extract a human message from an Axios error. */
 export function apiErrorMessage(error: unknown, fallback = 'Terjadi kesalahan.'): string {
   if (error instanceof AxiosError) {
-    const data = error.response?.data as { message?: string } | undefined
+    const data = error.response?.data as { message?: string; errors?: Record<string, string[]> } | undefined
+    // 422 validation errors: prefer the specific per-field reason (e.g.
+    // "Username/email atau password salah.") over Laravel's generic
+    // top-level "The given data was invalid." — that generic text is what
+    // data.message holds whenever a validator has field errors, so reading
+    // it first would silently hide the actually useful message.
+    const fieldErrors = data?.errors ? Object.values(data.errors).flat() : []
+    if (fieldErrors.length > 0) {
+      return fieldErrors.length === 1 ? fieldErrors[0] : fieldErrors.map((m) => `• ${m}`).join('\n')
+    }
     return data?.message ?? error.message ?? fallback
   }
   return fallback

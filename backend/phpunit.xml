@@ -32,6 +32,9 @@
         <env name="DB_URL" value=""/>
         <!-- No Excel import during tests -->
         <env name="STOCKWISE_IMPORT_PATH" value="./tests/__no_imports__"/>
+        <!-- Material Request is off for real users (config/stockwise.php 'features')
+             but its business logic still needs regression coverage — tests keep it on. -->
+        <env name="FEATURE_MATERIAL_REQUEST_ENABLED" value="true"/>
         <env name="MAIL_MAILER" value="array"/>
         <env name="QUEUE_CONNECTION" value="sync"/>
         <env name="SESSION_DRIVER" value="array"/>

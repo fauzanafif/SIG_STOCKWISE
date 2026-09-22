@@ -50,8 +50,12 @@ class SafetyStockController extends Controller
             'item_id' => ['required', 'integer', 'exists:items,id'],
             'source_category' => ['nullable', 'string', 'max:60'],
             'period_label' => ['nullable', 'string', 'max:30'],
-            'avg_usage_1m' => ['required', 'numeric', 'min:0'],
-            'avg_usage_3m' => ['nullable', 'numeric', 'min:0'],
+            // avg_usage_3m (not _1m) feeds the Safety Stock/MIN PR formula — a single
+            // month is too noisy for items not picked up every month (confirmed
+            // against real data: many legitimately-recurring items show zero usage
+            // in any given 1-month window). avg_usage_1m/6m/12m stay informational.
+            'avg_usage_1m' => ['nullable', 'numeric', 'min:0'],
+            'avg_usage_3m' => ['required', 'numeric', 'min:0'],
             'avg_usage_6m' => ['nullable', 'numeric', 'min:0'],
             'avg_usage_12m' => ['nullable', 'numeric', 'min:0'],
             'lead_time_days' => ['required', 'integer', 'min:0'],
@@ -59,7 +63,7 @@ class SafetyStockController extends Controller
             'note' => ['nullable', 'string', 'max:255'],
         ]);
 
-        $row = $this->service->create($data);
+        $row = $this->service->create($data, $request->user()->id);
         $row->load('item:id,code,description,unit_id');
 
         return response()->json(['data' => $this->row($row)], 201);

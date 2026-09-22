@@ -6,18 +6,47 @@ return [
     |--------------------------------------------------------------------------
     | Accurate sync orchestration (docs/sync-architecture.md)
     |--------------------------------------------------------------------------
-    | Laravel never connects to Firebird directly — it shells out to the
-    | sync-service/ Python project (which holds the real Firebird credentials
-    | in its own .env) to refresh the accurate_* staging tables, then does the
-    | staging -> items upsert itself in PHP.
+    | Laravel never connects to Firebird directly, and never shells out to a
+    | local process either — the sync-service/ Python Agent lives at the
+    | office (holds the real Firebird credentials in its own .env), restores
+    | the newest stable .GBK backup to a local staging Firebird DB, and PUSHES
+    | the mirrored rows here over HTTPS (POST /api/agent/sync/...), on its own
+    | 04:00/10:30/20:30 schedule. Laravel only ever receives data, matches it
+    | against Stockwise's own tables, and upserts — see
+    | AccurateSyncService::finishFromStaging().
     */
 
-    'sync_service_path' => env('ACCURATE_SYNC_SERVICE_PATH'),
+    /*
+    |--------------------------------------------------------------------------
+    | Accurate table mirror whitelist
+    |--------------------------------------------------------------------------
+    | The only tables the ingest endpoint (App\Http\Controllers\Api\Agent\
+    | AccurateIngestController) will ever create/replace in MySQL. Must stay
+    | identical to sync-service/mapping/tables.py's MIRROR_TABLES — enforced
+    | by tests/Feature/Agent/AccurateIngestTest.php — so a compromised or
+    | buggy Agent can never make Laravel create arbitrary tables.
+    */
+    'mirror_tables' => [
+        'ITEM', 'WAREHS', 'ITEMCATEGORY', 'PERSONDATA', 'CUSTTYPE',
+        'ITEMBALANCE', 'ITEMBALANCEWAREHOUSE', 'ITEMADJ', 'ITADJDET', 'ITEMHIST',
+        'PO', 'PODET', 'REQUISITION', 'REQUISITIONDET', 'APINV', 'APITMDET',
+        'SO', 'SODET', 'ARINV', 'ARINVDET',
+    ],
 
-    'python_bin' => env('ACCURATE_PYTHON_BIN', 'python'),
-
-    'firebird_client_dir' => env('ACCURATE_FIREBIRD_CLIENT_DIR'),
-
-    'process_timeout_seconds' => (int) env('ACCURATE_SYNC_TIMEOUT', 120),
+    /*
+    |--------------------------------------------------------------------------
+    | Column type vocabulary allowed in an ingest payload
+    |--------------------------------------------------------------------------
+    | Mirrors sync-service/mapping/type_mapping.py's own output vocabulary.
+    | StagingTableWriter refuses any column whose declared type isn't in this
+    | list — the Agent sends structured {name, type, length, nullable}, never
+    | raw SQL, so this whitelist is what keeps a network payload from ever
+    | being able to inject arbitrary DDL.
+    */
+    'column_types' => [
+        'SMALLINT', 'INT', 'BIGINT', 'FLOAT', 'DOUBLE',
+        'DATE', 'TIME', 'DATETIME',
+        'VARCHAR', 'CHAR', 'TEXT', 'LONGTEXT', 'LONGBLOB',
+    ],
 
 ];

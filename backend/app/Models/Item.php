@@ -166,10 +166,26 @@ class Item extends Model
         // analysis-derived
         $request->whenFilled('status', fn ($v) => $query->where('snap.status', strtoupper((string) $v)));
         $request->whenFilled('priority_level', fn ($v) => $query->where('snap.priority_level', strtoupper((string) $v)));
-        $request->whenFilled('lead_time_min', fn ($v) => $query->where('items.lead_time_days', '>=', (int) $v));
-        $request->whenFilled('lead_time_max', fn ($v) => $query->where('items.lead_time_days', '<=', (int) $v));
+        // snap.lead_time_days (not items.lead_time_days) — the snapshot already
+        // coalesces item_safety_stocks.lead_time_days (the value the Safety
+        // Stock formula actually used) ahead of items.lead_time_days, see
+        // InventoryAnalyzer. Filtering on the raw items column here would let
+        // this range silently disagree with the Lead Time the same item shows
+        // everywhere else once the two columns drift (confirmed they do).
+        $request->whenFilled('lead_time_min', fn ($v) => $query->where('snap.lead_time_days', '>=', (int) $v));
+        $request->whenFilled('lead_time_max', fn ($v) => $query->where('snap.lead_time_days', '<=', (int) $v));
         $request->whenFilled('selisih_min', fn ($v) => $query->where('snap.selisih', '>=', (float) $v));
         $request->whenFilled('selisih_max', fn ($v) => $query->where('snap.selisih', '<=', (float) $v));
+
+        // has_npbg — npbg has no FK to items (Accurate mirror, matched by
+        // kode_barang = items.code verbatim, confirmed 100% match in practice).
+        if ($request->filled('has_npbg')) {
+            $wantsNpbg = filter_var($request->input('has_npbg'), FILTER_VALIDATE_BOOL);
+            $npbgCodes = fn ($q) => $q->select('kode_barang')->from('npbg')->whereNotNull('kode_barang');
+            $wantsNpbg
+                ? $query->whereIn('items.code', $npbgCodes)
+                : $query->whereNotIn('items.code', $npbgCodes);
+        }
 
         return $query;
     }
